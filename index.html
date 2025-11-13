@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>Enochian Chess — Complete (Throne Rules)</title>
+<title>Enochian Chess</title>
 <style>
   :root{
     --tile-size:64px;
@@ -733,87 +733,36 @@
   // PIECE IMAGE LOOKUP (All Four Armies)
   // ============================================================
   function getPieceImageURL(piece) {
-    if (!piece || !piece.color || !piece.type) return null;
+    if (!piece) return null;
 
-    const type = piece.type.toUpperCase();
-    const color = piece.color.toUpperCase();
-
-    // map game color → elemental prefix
-    const colorMap = {
+    const prefixMap = {
       YELLOW: "air",
-      RED: "fire",
-      BLUE: "water",
-      BLACK: "earth"
+      RED:    "fire",
+      BLUE:   "water",
+      BLACK:  "earth"
     };
 
-    const prefix = colorMap[color];
-    if (!prefix) return null;
+    const suffixMap = {
+      KING:   "_king.png",
+      QUEEN:  "_queen.png",
+      ROOK:   "_rook.png",
+      BISHOP: "_bishop.png",
+      KNIGHT: "_knight.png",
 
-    // file names by type
-    const typeMap = {
-      KING:   `${prefix}-king.png`,
-      QUEEN:  `${prefix}-queen.png`,
-      ROOK:   `${prefix}-rook.png`,
-      BISHOP: `${prefix}-bishop.png`,
-      KNIGHT: `${prefix}-knight.png`,
-      PAWN_ROOK:   `${prefix}-pawn-rook.png`,
-      PAWN_BISHOP: `${prefix}-pawn-bishop.png`,
-      PAWN_KNIGHT: `${prefix}-pawn-knight.png`,
-      PAWN_QUEEN:  `${prefix}-pawn-queen.png`
+      PAWN_ROOK:   "_pawn_rook.png",
+      PAWN_BISHOP: "_pawn_bishop.png",
+      PAWN_KNIGHT: "_pawn_knight.png",
+      PAWN_QUEEN:  "_pawn_queen.png"
     };
 
-    const filename = typeMap[type];
-    if (!filename) return null;
+    const prefix = prefixMap[piece.color.toUpperCase()];
+    const suffix = suffixMap[piece.type.toUpperCase()];
 
-    // all hotlinks
-    const urlMap = {
-      // === AIR (Yellow) ===
-      "air-bishop.png": "https://i.ibb.co/DHR0sFv7/air-bishop.png",
-      "air-king.png": "https://i.ibb.co/cSwBzr1r/air-king.png",
-      "air-knight.png": "https://i.ibb.co/Q5GKSNP/air-knight.png",
-      "air-pawn-bishop.png": "https://i.ibb.co/4gYtSMLp/air-pawn-bishop.png",
-      "air-pawn-knight.png": "https://i.ibb.co/HTrFVWhb/air-pawn-knight.png",
-      "air-pawn-queen.png": "https://i.ibb.co/LdRnZ0mn/air-pawn-queen.png",
-      "air-pawn-rook.png": "https://i.ibb.co/1fKbvmxZ/air-pawn-rook.png",
-      "air-queen.png": "https://i.ibb.co/tMwM6BBr/air-queen.png",
-      "air-rook.png": "https://i.ibb.co/rR9zck6F/air-rook.png",
+    if (!prefix || !suffix) return null;
 
-      // === EARTH (Black) ===
-      "earth-bishop.png": "https://i.ibb.co/60PV6JhY/earth-bishop.png",
-      "earth-king.png": "https://i.ibb.co/V0WfQN6t/earth-king.png",
-      "earth-knight.png": "https://i.ibb.co/mV48MLCV/earth-knight.png",
-      "earth-pawn-bishop.png": "https://i.ibb.co/5Xc1my73/earth-pawn-bishop.png",
-      "earth-pawn-knight.png": "https://i.ibb.co/whkFtJ48/earth-pawn-knight.png",
-      "earth-pawn-queen.png": "https://i.ibb.co/kVQswN4L/earth-pawn-queen.png",
-      "earth-pawn-rook.png": "https://i.ibb.co/jvCdZDjD/earth-pawn-rook.png",
-      "earth-queen.png": "https://i.ibb.co/PbsdZw4/earth-queen.png",
-      "earth-rook.png": "https://i.ibb.co/LdQbnR5N/earth-rook.png",
-
-      // === FIRE (Red) ===
-      "fire-bishop.png": "https://i.ibb.co/1GXTwvcp/fire-bishop.png",
-      "fire-king.png": "https://i.ibb.co/m5s9tYYJ/fire-king.png",
-      "fire-knight.png": "https://i.ibb.co/V0wwhxtS/fire-knight.png",
-      "fire-pawn-bishop.png": "https://i.ibb.co/4Z3wkXMX/fire-pawn-bishop.png",
-      "fire-pawn-knight.png": "https://i.ibb.co/gF7nb90T/fire-pawn-knight.png",
-      "fire-pawn-queen.png": "https://i.ibb.co/nNm9V38s/fire-pawn-queen.png",
-      "fire-pawn-rook.png": "https://i.ibb.co/wNBCmrHz/fire-pawn-rook.png",
-      "fire-queen.png": "https://i.ibb.co/wrrdt2LV/fire-queen.png",
-      "fire-rook.png": "https://i.ibb.co/8gSsdNsH/fire-rook.png",
-
-      // === WATER (Blue) ===
-      "water-bishop.png": "https://i.ibb.co/600B0RSb/water-bishop.png",
-      "water-king.png": "https://i.ibb.co/BVFBXxfC/water-king.png",
-      "water-knight.png": "https://i.ibb.co/ynvWRcQb/water-knight.png",
-      "water-pawn-bishop.png": "https://i.ibb.co/5hRgL9Zx/water-pawn-bishop.png",
-      "water-pawn-knight.png": "https://i.ibb.co/TxNCxKSp/water-pawn-knight.png",
-      "water-pawn-queen.png": "https://i.ibb.co/nMkV59YZ/water-pawn-queen.png",
-      "water-pawn-rook.png": "https://i.ibb.co/Gfzw2bvn/water-pawn-rook.png",
-      "water-queen.png": "https://i.ibb.co/hxmNRMKx/water-queen.png",
-      "water-rook.png": "https://i.ibb.co/tMMFk6PV/water-rook.png"
-    };
-
-    return urlMap[filename] || null;
+    return `assets/${prefix}${suffix}`;
   }
+
 
   function updateTurnDisplay() {
     const color = currentColor();
