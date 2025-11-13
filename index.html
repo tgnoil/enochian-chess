@@ -1,0 +1,2838 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>Enochian Chess — Complete (Throne Rules)</title>
+<style>
+  :root{
+    --tile-size:64px;
+    --light:#f0e9d8;
+    --dark:#6b8a6b;
+    --highlight:#f6eb6f;
+  }
+
+  html,body{
+    height:100%;
+    margin:0;
+    font-family:system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial;
+    background:#fafafa;
+  }
+
+  /* Keep main area centered (board centered vertically/horizontally) */
+  main {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 120px; /* room for fixed top bar */
+    box-sizing: border-box;
+  }
+
+  #board {
+    position: relative;
+    z-index: 10; /* baseline */
+  }
+
+  /* === NEW WRAPPER for outer labels & board centering === */
+  /* overlay covers board and eats interactions when visible */
+  #board-wrapper { position: relative; } /* ensure stacking context */
+  #boardOverlay {
+    position: absolute;
+    inset: 0;                /* top:0; right:0; bottom:0; left:0 */
+    display: none;          /* hidden by default */
+    pointer-events: none;   /* enabled only when game over */
+    background: rgba(34,34,34,0.18); /* subtle neutral tint */
+    z-index: 99999;         /* very high so it sits above board pieces */
+    transition: opacity 180ms ease;
+    opacity: 0;
+  }
+
+  /* visible state */
+  #boardOverlay.visible {
+    display: block;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  /* optional: board ended styling */
+  .board.ended {
+    filter: saturate(.85) brightness(.98); /* small visual cue */
+  }
+
+
+  /* === TOP BAR: centered at very top of viewport === */
+  #topBar {
+    position: fixed;
+    top: 8px;
+    left: 0;
+    right: 0;
+    z-index: 999;
+    display: flex;
+    flex-direction: column;    /* stack controls row and Begin button */
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    pointer-events: auto;
+    background: transparent;   /* change if you want a background */
+  }
+
+  /* row that holds array + the 4 dropdowns (centered horizontally) */
+  #setupControls {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+  }
+
+  /* Begin button sits on next line (because topBar is column) */
+  #topBar button {
+    font-size: 14px;
+    padding: 6px 10px;
+    cursor: pointer;
+    border: 1px solid #999;
+    border-radius: 4px;
+    background: #eee;
+    transition: background 0.2s;
+  }
+
+  #topBar button:hover:not(:disabled) {
+    background: #ddd;
+  }
+
+  #topBar button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  /* unified sizing for selects */
+  #topBar select {
+    font-size: 14px;
+    padding: 4px 6px;
+  }
+
+  /* Turn display — always stays just above the board */
+  #turnDisplay {
+    position: absolute;
+    top: -40px;                /* space above the board */
+    left: 50%;
+    transform: translateX(-50%);
+    font-weight: bold;
+    color: #000;
+    text-shadow: 0 0 5px #888;
+    display: none;
+    z-index: 50;
+    background: rgba(255,255,255,0.8);
+    padding: 4px 10px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    white-space: nowrap;
+  }
+
+
+  /* Dynamic tests container hidden by default; add .visible to show */
+  #dynamicTestsContainer {
+    display: none;
+    text-align: center;
+    margin-top: 12px;
+  }
+  #dynamicTestsContainer.visible { display: block; }
+
+  /* Board appearance — keep grid layout and center it */
+  .board {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    width: calc(var(--tile-size) * 8);
+    height: calc(var(--tile-size) * 8);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 0 auto; /* center horizontally inside wrapper */
+  }
+
+  .tile{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:18px;
+    user-select:none;
+    transition:background 0.15s;
+  }
+
+  /* === Coordinate label positioning === */
+  .file-labels,
+  .rank-labels {
+    position: absolute;
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .file-labels {
+    bottom: -20px; /* push below the board */
+    left: 0;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    justify-items: center;
+  }
+
+  .rank-labels {
+    top: 0;
+    left: -20px; /* push left of the board */
+    height: 100%;
+    display: grid;
+    grid-template-rows: repeat(8, 1fr);
+    align-items: center;
+  }
+
+  .tile.light{background:var(--light);}
+  .tile.dark{background:var(--dark);color:white;}
+  .tile.selected{background:var(--highlight);}
+  .tile.valid{box-shadow: inset 0 0 0 4px #f6eb6f;}
+  .piece{font-weight:700;cursor:pointer;}
+  .piece[data-color="YELLOW"]{ color:#d4a300; }
+  .piece[data-color="BLUE"]  { color:#0066cc; }
+  .piece[data-color="RED"]   { color:#cc3333; }
+  .piece[data-color="BLACK"] { color:#333333; }
+  .piece.frozen {
+    opacity: 0.4;
+    filter: grayscale(80%);
+    cursor: not-allowed;
+  }
+
+  .piece img {
+    display: block;
+    margin: 0 auto;
+    pointer-events: none;
+  }
+
+  .meta{
+    position:fixed;
+    left:16px;
+    bottom:16px;
+    font-size:12px;
+    color:#555;
+  }
+
+  .tile {
+    position: relative; /* allow absolute-positioned children */
+  }
+
+  .piece {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+  }
+
+  .tile .piece:nth-child(2) {
+    transform: translate(-50%, -50%); /* small offset for 2nd piece */
+    filter: drop-shadow(0 0 6px rgba(0,0,0,0.5));
+  }
+
+  .tile .piece:nth-child(3) {
+    transform: translate(-60%, -40%); /* just in case a rare triple overlap */
+  }
+
+  .top-controls{position:fixed;top:12px;left:12px;font-size:14px;display:flex;gap:8px;align-items:center;}
+
+    /* === Throne hover menu overlay === */
+  .throne-menu {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #999;
+    border-radius: 6px;
+    padding: 4px 6px;
+    font-size: 11px;
+    z-index: 20;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  }
+
+  .throne-menu button {
+    border: none;
+    background: #eee;
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 2px 4px;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+
+  .throne-menu button:hover {
+    background: #ddd;
+  }
+
+  /* Add a slight shadow or glow to the topmost piece on a shared throne */
+  .piece.top-piece {
+    filter: drop-shadow(0 0 6px rgba(0,0,0,0.5));
+    transform: translate(-50%, -52%) scale(1.05);
+    transition: all 0.15s ease;
+  }
+
+  /* === Board + notation layout === */
+  #board-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;   /* center horizontally */
+    gap: 16px;             /* spacing between board and notation box */
+  }
+
+  /* Center the notation box below the board */
+  #notationWrapper {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  #notationArea {
+    margin-top: 10px;
+    width: calc(var(--tile-size) * 8);
+    max-width: calc(var(--tile-size) * 8);
+    height: 100px;
+    max-height: 100px;
+    overflow-y: auto;
+    padding: 10px 14px;
+    border: 1px solid #999;
+    border-radius: 8px;
+    background: #fefefe;
+    font-family: monospace;
+    font-size: 13px;
+    line-height: 1.4;
+    text-align: left;
+    white-space: pre-wrap;
+    box-sizing: border-box;
+  }
+
+  #topBar button:last-child {
+    font-weight: bold;
+    width: 32px;
+    text-align: center;
+  }
+
+
+  /* === MOBILE RESPONSIVENESS === */
+  @media (max-width: 800px) {
+    :root {
+      --tile-size: min(10vw, 50px); /* dynamically scale down tiles */
+    }
+
+    #board-section {
+      width: 100%;
+      overflow-x: auto;  /* allow gentle horizontal scroll if needed */
+      justify-content: center;
+    }
+
+    #board {
+      transform: scale(0.9);
+      transform-origin: top center;
+    }
+
+    #notationArea {
+      width: 90vw;               /* fit within phone screen */
+      max-width: 90vw;
+      font-size: 12px;
+      height: 120px;
+    }
+
+    #turnDisplay {
+      top: -32px;
+      font-size: 14px;
+      padding: 3px 8px;
+    }
+
+    .meta {
+      font-size: 13px;
+      text-align: center;
+      margin-top: 10px;
+    }
+
+    #topBar {
+      flex-direction: column;
+      gap: 6px;
+      align-items: center;
+    }
+
+    button, select {
+      font-size: 13px;
+      padding: 4px 8px;
+    }
+    
+  }
+
+</style>
+
+</head>
+<body>
+  <main>
+    <div id="board-section">
+      <div id="board-wrapper">
+        <div id="board" class="board" aria-label="Enochian chess board"></div>
+
+        <!-- ← drop this overlay immediately after #board -->
+        <div id="boardOverlay" aria-hidden="true"></div>
+      </div>
+
+      <div id="notationWrapper">
+        <div id="notationArea"></div>
+      </div>
+    </div>
+
+
+    <div class="meta">Click a piece to see valid moves.</div>
+  </main>
+
+
+  <!-- embedded arrays -->
+  <script id="arrays-data" type="application/json">
+  {
+    "arrays": {
+      "1": {
+        "name": "Air of Air & Water",
+        "positions": { "YELLOW":{"a8":["king","bishop"],"b8":["queen"],"c8":["knight"],"d8":["rook"],"a7":["pawn of bishop"],"b7":["pawn of queen"],"c7":["pawn of knight"],"d7":["pawn of rook"]},"BLUE":{"h8":["king","bishop"],"h7":["queen"],"h6":["knight"],"h5":["rook"],"g8":["pawn of bishop"],"g7":["pawn of queen"],"g6":["pawn of knight"],"g5":["pawn of rook"]},"RED":{"h1":["king","bishop"],"g1":["queen"],"f1":["knight"],"e1":["rook"],"h2":["pawn of bishop"],"g2":["pawn of queen"],"f2":["pawn of knight"],"e2":["pawn of rook"]},"BLACK":{"a1":["king","bishop"],"a2":["queen"],"a3":["knight"],"a4":["rook"],"b1":["pawn of bishop"],"b2":["pawn of queen"],"b3":["pawn of knight"],"b4":["pawn of rook"]}}
+      },
+      "2": {
+        "name": "Air of Fire & Earth",
+        "positions": { "YELLOW":{"a8":["king","bishop"],"b8":["rook"],"c8":["knight"],"d8":["queen"],"a7":["pawn of bishop"],"b7":["pawn of rook"],"c7":["pawn of knight"],"d7":["pawn of queen"]},"BLUE":{"h8":["king","bishop"],"h7":["rook"],"h6":["knight"],"h5":["queen"],"g8":["pawn of bishop"],"g7":["pawn of rook"],"g6":["pawn of knight"],"g5":["pawn of queen"]},"RED":{"h1":["king","bishop"],"g1":["rook"],"f1":["knight"],"e1":["queen"],"h2":["pawn of bishop"],"g2":["pawn of rook"],"f2":["pawn of knight"],"e2":["pawn of queen"]},"BLACK":{"a1":["king","bishop"],"a2":["rook"],"a3":["knight"],"a4":["queen"],"b1":["pawn of bishop"],"b2":["pawn of rook"],"b3":["pawn of knight"],"b4":["pawn of queen"]}}
+      },
+      "3": {
+        "name": "Fire of Air & Water",
+        "positions": { "YELLOW":{"a8":["king","knight"],"b8":["rook"],"c8":["bishop"],"d8":["queen"],"a7":["pawn of knight"],"b7":["pawn of rook"],"c7":["pawn of bishop"],"d7":["pawn of queen"]},"BLUE":{"h8":["king","knight"],"h7":["rook"],"h6":["bishop"],"h5":["queen"],"g8":["pawn of knight"],"g7":["pawn of rook"],"g6":["pawn of bishop"],"g5":["pawn of queen"]},"RED":{"h1":["king","knight"],"g1":["rook"],"f1":["bishop"],"e1":["queen"],"h2":["pawn of knight"],"g2":["pawn of rook"],"f2":["pawn of bishop"],"e2":["pawn of queen"]},"BLACK":{"a1":["king","knight"],"a2":["rook"],"a3":["bishop"],"a4":["queen"],"b1":["pawn of knight"],"b2":["pawn of rook"],"b3":["pawn of bishop"],"b4":["pawn of queen"]}}
+      },
+      "4": {
+        "name": "Water of Air & Water",
+        "positions": { "YELLOW":{"a8":["king","queen"],"b8":["bishop"],"c8":["rook"],"d8":["knight"],"a7":["pawn of queen"],"b7":["pawn of bishop"],"c7":["pawn of rook"],"d7":["pawn of knight"]},"BLUE":{"h8":["king","queen"],"h7":["bishop"],"h6":["rook"],"h5":["knight"],"g8":["pawn of queen"],"g7":["pawn of bishop"],"g6":["pawn of rook"],"g5":["pawn of knight"]},"RED":{"h1":["king","queen"],"g1":["bishop"],"f1":["rook"],"e1":["knight"],"h2":["pawn of queen"],"g2":["pawn of bishop"],"f2":["pawn of rook"],"e2":["pawn of knight"]},"BLACK":{"a1":["king","queen"],"a2":["bishop"],"a3":["rook"],"a4":["knight"],"b1":["pawn of queen"],"b2":["pawn of bishop"],"b3":["pawn of rook"],"b4":["pawn of knight"]}}
+      },
+      "5": {
+        "name": "Earth of Fire & Earth",
+        "positions": { "YELLOW":{"a8":["king","rook"],"b8":["bishop"],"c8":["queen"],"d8":["knight"],"a7":["pawn of rook"],"b7":["pawn of bishop"],"c7":["pawn of queen"],"d7":["pawn of knight"]},"BLUE":{"h8":["king","rook"],"h7":["bishop"],"h6":["queen"],"h5":["knight"],"g8":["pawn of rook"],"g7":["pawn of bishop"],"g6":["pawn of queen"],"g5":["pawn of knight"]},"RED":{"h1":["king","rook"],"g1":["bishop"],"f1":["queen"],"e1":["knight"],"h2":["pawn of rook"],"g2":["pawn of bishop"],"f2":["pawn of queen"],"e2":["pawn of knight"]},"BLACK":{"a1":["king","rook"],"a2":["bishop"],"a3":["queen"],"a4":["knight"],"b1":["pawn of rook"],"b2":["pawn of bishop"],"b3":["pawn of queen"],"b4":["pawn of knight"]}}
+      },
+      "6": {
+        "name": "Earth of Air & Water",
+        "positions": { "YELLOW":{"a8":["king","rook"],"b8":["knight"],"c8":["queen"],"d8":["bishop"],"a7":["pawn of rook"],"b7":["pawn of knight"],"c7":["pawn of queen"],"d7":["pawn of bishop"]},"BLUE":{"h8":["king","rook"],"h7":["knight"],"h6":["queen"],"h5":["bishop"],"g8":["pawn of rook"],"g7":["pawn of knight"],"g6":["pawn of queen"],"g5":["pawn of bishop"]},"RED":{"h1":["king","rook"],"g1":["knight"],"f1":["queen"],"e1":["bishop"],"h2":["pawn of rook"],"g2":["pawn of knight"],"f2":["pawn of queen"],"e2":["pawn of bishop"]},"BLACK":{"a1":["king","rook"],"a2":["knight"],"a3":["queen"],"a4":["bishop"],"b1":["pawn of rook"],"b2":["pawn of knight"],"b3":["pawn of queen"],"b4":["pawn of bishop"]}}
+      },
+      "7": {
+        "name": "Fire of Fire & Earth",
+        "positions": { "YELLOW":{"a8":["king","knight"],"b8":["queen"],"c8":["bishop"],"d8":["rook"],"a7":["pawn of knight"],"b7":["pawn of queen"],"c7":["pawn of bishop"],"d7":["pawn of rook"]},"BLUE":{"h8":["king","knight"],"h7":["queen"],"h6":["bishop"],"h5":["rook"],"g8":["pawn of knight"],"g7":["pawn of queen"],"g6":["pawn of bishop"],"g5":["pawn of rook"]},"RED":{"h1":["king","knight"],"g1":["queen"],"f1":["bishop"],"e1":["rook"],"h2":["pawn of knight"],"g2":["pawn of queen"],"f2":["pawn of bishop"],"e2":["pawn of rook"]},"BLACK":{"a1":["king","knight"],"a2":["queen"],"a3":["bishop"],"a4":["rook"],"b1":["pawn of knight"],"b2":["pawn of queen"],"b3":["pawn of bishop"],"b4":["pawn of rook"]}}
+      },
+      "8": {
+        "name": "Water of Fire & Earth",
+        "positions": { "YELLOW":{"a8":["king","queen"],"b8":["knight"],"c8":["rook"],"d8":["bishop"],"a7":["pawn of queen"],"b7":["pawn of knight"],"c7":["pawn of rook"],"d7":["pawn of bishop"]},"BLUE":{"h8":["king","queen"],"h7":["knight"],"h6":["rook"],"h5":["bishop"],"g8":["pawn of queen"],"g7":["pawn of knight"],"g6":["pawn of rook"],"g5":["pawn of bishop"]},"RED":{"h1":["king","queen"],"g1":["knight"],"f1":["rook"],"e1":["bishop"],"h2":["pawn of queen"],"g2":["pawn of knight"],"f2":["pawn of rook"],"e2":["pawn of bishop"]},"BLACK":{"a1":["king","queen"],"a2":["knight"],"a3":["rook"],"a4":["bishop"],"b1":["pawn of queen"],"b2":["pawn of knight"],"b3":["pawn of rook"],"b4":["pawn of bishop"]}}
+      }
+    }
+  }
+  </script>
+
+<script>
+(function(){
+  const board = document.getElementById('board');
+  const notationArea = document.getElementById('notationArea');
+  const files = ['a','b','c','d','e','f','g','h'];
+  const coordToXY = coord => [files.indexOf(coord[0]), parseInt(coord[1])-1];
+  const xyToCoord = (x,y) => files[x] + (y+1);
+  const inBounds = (x,y)=> x>=0 && x<8 && y>=0 && y<8;
+
+  // read JSON
+  const data = JSON.parse(document.getElementById('arrays-data').textContent);
+
+  // ============================================================
+  // GAME SETUP BAR (ARRAY SELECTION + CONTROL MODES + START BUTTON)
+  // ============================================================
+
+  let setupLocked = false;
+  let boardActive = false;
+
+  // Create top bar and inner layout
+  const topBar = document.createElement("div");
+  topBar.id = "topBar";
+  board.insertAdjacentElement("beforebegin", topBar);
+
+  // First row: setup controls (array + dropdowns)
+  const setupControls = document.createElement("div");
+  setupControls.id = "setupControls";
+  topBar.appendChild(setupControls);
+
+  // --- Array Dropdown ---
+  const arrayLabel = document.createElement("label");
+  arrayLabel.textContent = "Select the board/setup:";
+  setupControls.appendChild(arrayLabel);
+
+  const arrayDropdown = document.createElement("select");
+  arrayDropdown.innerHTML = `<option value="">-- Choose an array --</option>`;
+  Object.keys(data.arrays).forEach(key => {
+    const arr = data.arrays[key];
+    const opt = document.createElement("option");
+    opt.value = key;
+    opt.textContent = `${key}: ${arr.name}`;
+    arrayDropdown.appendChild(opt);
+  });
+  setupControls.appendChild(arrayDropdown);
+
+  // --- Control Dropdowns ---
+  const colorsInOrder = ["BLACK", "YELLOW", "BLUE", "RED"];
+  const controlMode = { BLACK: "PLAYER", YELLOW: "PLAYER", BLUE: "PLAYER", RED: "PLAYER" };
+  const controlDropdowns = {};
+
+  colorsInOrder.forEach(color => {
+    const label = document.createElement("label");
+    label.textContent = color + ": ";
+    const select = document.createElement("select");
+    ["PLAYER", "BOT"].forEach(opt => {
+      const o = document.createElement("option");
+      o.value = opt;
+      o.textContent = opt;
+      select.appendChild(o);
+    });
+    select.value = "PLAYER";
+    select.disabled = true;
+    select.addEventListener("change", () => (controlMode[color] = select.value));
+    controlDropdowns[color] = select;
+    label.appendChild(select);
+    setupControls.appendChild(label); // 👈 changed from topBar.appendChild(label)
+  });
+
+  // --- Begin Play + End Game buttons (centered below dropdowns) ---
+  const buttonRow = document.createElement("div");
+  buttonRow.style.display = "flex";
+  buttonRow.style.justifyContent = "center";
+  buttonRow.style.gap = "12px";
+  topBar.appendChild(buttonRow);
+
+  const startButton = document.createElement("button");
+  startButton.textContent = "Begin Game";
+  startButton.disabled = true;
+  buttonRow.appendChild(startButton);
+
+  const endButton = document.createElement("button");
+  endButton.textContent = "End Game";
+  endButton.disabled = true; // <--- initially disabled
+  endButton.addEventListener("click", () => {
+    location.reload(); // fully reset page
+  });
+  buttonRow.appendChild(endButton);
+
+  // --- Help ("?") button with popup ---
+  const helpButton = document.createElement("button");
+  helpButton.textContent = "?";
+  helpButton.title = "Show Help / Instructions";
+  helpButton.addEventListener("click", () => {
+    // Create popup if it doesn't already exist
+    let popup = document.getElementById("helpPopup");
+    if (!popup) {
+      popup = document.createElement("div");
+      popup.id = "helpPopup";
+      popup.innerHTML = `
+        <div class="popup-content">
+          <h2>Enochian Chess — How to Play</h2>
+
+          <p><strong>Objective:</strong> Capture both opposing kings.</p>
+
+          <ul style="text-align:left; margin:10px 0;">
+            <li><strong>Teams/Turn Order:</strong> There are two teams with two armies each: Earth (Black) + Water (Blue) vs Fire (Red) + Air (Yellow). Allied pieces may support each other; they may not threaten/capture each other (in most cases). Board array determines who starts; play proceeds clockwise</li>
+
+            <li><strong>Setup:</strong> Each team begins with five major pieces (king, queen, rook, knight, bishop) and four pawns. Kings share corners ("thrones") with a major piece until one of them is moved. Pawns sit in front of their major pieces. Piece arrangement varies by board array. </li>
+
+            <li><strong>Movesets:</strong> All pieces move and capture as in standard chess, except the Queen who leaps two squares in any direction. Pawns may move only one square.</li>
+
+            <li><strong>Check/Freezing:</strong> A king in check <em>must</em> move, even into danger, unless blocked by allies. There is no checkmate; kings must be captured. Capturing a king freezes his army in place. An army is unfrozen if an allied king seizes the vacant throne.</li>
+
+            <li><strong>Promotion:</strong> Pawns promote to their corresponding major piece if (a) the pawn reaches the opposite side of the board and (b) one other pawn from that army has been lost. A "privileged" pawn (the last pawn in an army otherwise reduced to bishop+king, queen+king, or king) may promote to any major piece.</li>
+
+            <li><strong>Concourse:</strong> By completing a 2x2 square formation involving four bishops or queens (two enemy and one allied), the moving bishop or queen captures the other three. This can occur at five positions only: d4:e5, b2:c3, b6:c7, f6:g7, f2:g3.</li>
+
+            <li><strong>Draws:</strong> A draw is called if a team has (a) two "bare" kings (i.e. no other pieces), (b) one bare and one captured king, or (c) a stalemate position (no legal moves) and a captured king. </li>
+
+            <li><strong>Meta-Rules:</strong> Social or temporary transfer-of-control rules (withdrawal, resignation, usurpation, allied capture, prisoner exchange, etc.) are <em>not implemented</em> in this version.</li>
+
+            <li><strong>Notation:</strong>
+              <ul>
+                <li><b>++</b> = King captured</li>
+                <li><b>+</b> = Check</li>
+                <li><b>!</b> = Throne seizure</li>
+                <li><b>*</b> = Concourse</li>
+                <li><b>=</b> = Promotion</li>
+                <li><b>---</b> = Skipped turn</li>
+              </ul>
+            </li>
+          </ul>
+
+          <p>Further reading:<br>
+            <a href="https://www.chessvariants.com/historic.dir/enochian.html" target="_blank">The Chess Variant Pages: Enochian Chess</a><br>
+            <a href="https://www.labirintoermetico.com/06Numerologia_Cabala/Zalewski-Enochian-Chess-of-the-Golden-Dawn.pdf" target="_blank"><i>Enochian Chess of the Golden Dawn</i> — Zalewski</a><br>
+            <a href="http://www.archidox.org/Enochian%20Chess%20Primer.pdf" target="_blank">Enochian or Rosicrucian Chess Rules of Play</a><br>
+          </p>
+
+          <button id="closeHelp">Close</button>
+        </div>
+
+      `;
+      document.body.appendChild(popup);
+
+      // Inject popup styling if not already present
+      const style = document.createElement("style");
+      style.textContent = `
+        #helpPopup {
+          position: fixed;
+          top: 0; left: 0;
+          width: 100%; height: 100%;
+          background: rgba(0,0,0,0.5);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 9999;
+        }
+
+        #helpPopup .popup-content {
+          background: #fff;
+          padding: 20px 24px;
+          width: 460px;
+          max-width: 90vw;           /* ✅ responsive width */
+          max-height: 80vh;          /* ✅ fits small screens */
+          overflow-y: auto;          /* ✅ scrolls internally if content too tall */
+          border-radius: 12px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          text-align: center;
+          font-family: sans-serif;
+          box-sizing: border-box;
+        }
+
+        #helpPopup h2 {
+          margin-top: 0;
+          font-size: 20px;
+          margin-bottom: 10px;
+        }
+
+        #helpPopup a {
+          color: #0077cc;
+          text-decoration: underline;
+        }
+
+        #helpPopup button {
+          margin-top: 15px;
+          padding: 6px 14px;
+          font-weight: bold;
+          border: 1px solid #999;
+          border-radius: 6px;
+          background: #eee;
+          cursor: pointer;
+        }
+
+        #helpPopup button:hover {
+          background: #ddd;
+        }
+
+        /* Optional: subtle scrollbar styling */
+        #helpPopup .popup-content::-webkit-scrollbar {
+          width: 6px;
+        }
+        #helpPopup .popup-content::-webkit-scrollbar-thumb {
+          background: rgba(0, 0, 0, 0.3);
+          border-radius: 3px;
+        }
+      `;
+      document.head.appendChild(style);
+
+      // Close behavior
+      popup.addEventListener("click", e => {
+        if (e.target === popup || e.target.id === "closeHelp") popup.remove();
+      });
+    }
+  });
+  buttonRow.appendChild(helpButton);
+
+
+  // --- Turn display (hidden until Begin Play) ---
+  const turnDisplay = document.createElement("div");
+  turnDisplay.id = "turnDisplay";
+  turnDisplay.textContent = "";
+  turnDisplay.style.display = "none";
+
+  // Insert the turn display just above the board, inside board-wrapper
+  const boardWrapper = document.getElementById("board-wrapper");
+  boardWrapper.insertBefore(turnDisplay, boardWrapper.firstChild);
+
+
+
+
+  // --- Logic: array select → enable controls, reset game ---
+  arrayDropdown.addEventListener("change", () => {
+    const name = arrayDropdown.value;
+    if (!name) {
+      Object.values(controlDropdowns).forEach(d => { d.disabled = true; d.value = "PLAYER"; });
+      startButton.disabled = true;
+      boardActive = false;
+      return;
+    }
+    loadArray(data.arrays[name]);
+    boardActive = false;
+    Object.values(controlDropdowns).forEach(d => d.disabled = false);
+    startButton.disabled = false;
+    setupLocked = false;
+    for (const color in controlMode) controlMode[color] = "PLAYER";
+  });
+
+  // --- Logic: Begin Play → lock setup, enable board, start game ---
+  startButton.addEventListener("click", () => {
+    setupLocked = true;
+    boardActive = true;
+    arrayDropdown.disabled = true;
+    startButton.disabled = true;
+    endButton.disabled = false; // <--- enable End Game once play begins
+    Object.values(controlDropdowns).forEach(d => d.disabled = true);
+    turnDisplay.style.display = "block";
+    updateTurnDisplay();
+    const first = currentColor();
+    if (controlMode[first] === "BOT") {
+      console.log(`🤖 ${first} bot begins play...`);
+      setTimeout(() => playGreedyMove(first), 1000);
+    }
+  });
+
+
+  // single shared state
+  let selectedPiece = null;
+  let pieces = [];
+
+  let lastMovedId = null;
+
+  let moveNumber = 1;
+  let moveLog = [];
+
+  let lastUnfrozen = false;
+  let pendingSkips = []; // queued skipped colors waiting to be notated
+
+
+  // --- TURN SYSTEM GLOBALS ---
+  const turnOrder = ["BLUE", "RED", "BLACK", "YELLOW"];
+  let currentTurnIndex = 0;
+  function currentColor() {
+    return turnOrder[currentTurnIndex];
+  }
+
+  // --- Display Helpers ---
+  const colorToElement = {
+    BLUE:   "Water",
+    RED:    "Fire",
+    YELLOW: "Air",
+    BLACK:  "Earth"
+  };
+
+  function capitalize(str) {
+    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+  }
+
+  // ============================================================
+  // PIECE IMAGE LOOKUP (All Four Armies)
+  // ============================================================
+  function getPieceImageURL(piece) {
+    if (!piece || !piece.color || !piece.type) return null;
+
+    const type = piece.type.toUpperCase();
+    const color = piece.color.toUpperCase();
+
+    // map game color → elemental prefix
+    const colorMap = {
+      YELLOW: "air",
+      RED: "fire",
+      BLUE: "water",
+      BLACK: "earth"
+    };
+
+    const prefix = colorMap[color];
+    if (!prefix) return null;
+
+    // file names by type
+    const typeMap = {
+      KING:   `${prefix}-king.png`,
+      QUEEN:  `${prefix}-queen.png`,
+      ROOK:   `${prefix}-rook.png`,
+      BISHOP: `${prefix}-bishop.png`,
+      KNIGHT: `${prefix}-knight.png`,
+      PAWN_ROOK:   `${prefix}-pawn-rook.png`,
+      PAWN_BISHOP: `${prefix}-pawn-bishop.png`,
+      PAWN_KNIGHT: `${prefix}-pawn-knight.png`,
+      PAWN_QUEEN:  `${prefix}-pawn-queen.png`
+    };
+
+    const filename = typeMap[type];
+    if (!filename) return null;
+
+    // all hotlinks
+    const urlMap = {
+      // === AIR (Yellow) ===
+      "air-bishop.png": "https://i.ibb.co/DHR0sFv7/air-bishop.png",
+      "air-king.png": "https://i.ibb.co/cSwBzr1r/air-king.png",
+      "air-knight.png": "https://i.ibb.co/Q5GKSNP/air-knight.png",
+      "air-pawn-bishop.png": "https://i.ibb.co/4gYtSMLp/air-pawn-bishop.png",
+      "air-pawn-knight.png": "https://i.ibb.co/HTrFVWhb/air-pawn-knight.png",
+      "air-pawn-queen.png": "https://i.ibb.co/LdRnZ0mn/air-pawn-queen.png",
+      "air-pawn-rook.png": "https://i.ibb.co/1fKbvmxZ/air-pawn-rook.png",
+      "air-queen.png": "https://i.ibb.co/tMwM6BBr/air-queen.png",
+      "air-rook.png": "https://i.ibb.co/rR9zck6F/air-rook.png",
+
+      // === EARTH (Black) ===
+      "earth-bishop.png": "https://i.ibb.co/60PV6JhY/earth-bishop.png",
+      "earth-king.png": "https://i.ibb.co/V0WfQN6t/earth-king.png",
+      "earth-knight.png": "https://i.ibb.co/mV48MLCV/earth-knight.png",
+      "earth-pawn-bishop.png": "https://i.ibb.co/5Xc1my73/earth-pawn-bishop.png",
+      "earth-pawn-knight.png": "https://i.ibb.co/whkFtJ48/earth-pawn-knight.png",
+      "earth-pawn-queen.png": "https://i.ibb.co/kVQswN4L/earth-pawn-queen.png",
+      "earth-pawn-rook.png": "https://i.ibb.co/jvCdZDjD/earth-pawn-rook.png",
+      "earth-queen.png": "https://i.ibb.co/PbsdZw4/earth-queen.png",
+      "earth-rook.png": "https://i.ibb.co/LdQbnR5N/earth-rook.png",
+
+      // === FIRE (Red) ===
+      "fire-bishop.png": "https://i.ibb.co/1GXTwvcp/fire-bishop.png",
+      "fire-king.png": "https://i.ibb.co/m5s9tYYJ/fire-king.png",
+      "fire-knight.png": "https://i.ibb.co/V0wwhxtS/fire-knight.png",
+      "fire-pawn-bishop.png": "https://i.ibb.co/4Z3wkXMX/fire-pawn-bishop.png",
+      "fire-pawn-knight.png": "https://i.ibb.co/gF7nb90T/fire-pawn-knight.png",
+      "fire-pawn-queen.png": "https://i.ibb.co/nNm9V38s/fire-pawn-queen.png",
+      "fire-pawn-rook.png": "https://i.ibb.co/wNBCmrHz/fire-pawn-rook.png",
+      "fire-queen.png": "https://i.ibb.co/wrrdt2LV/fire-queen.png",
+      "fire-rook.png": "https://i.ibb.co/8gSsdNsH/fire-rook.png",
+
+      // === WATER (Blue) ===
+      "water-bishop.png": "https://i.ibb.co/600B0RSb/water-bishop.png",
+      "water-king.png": "https://i.ibb.co/BVFBXxfC/water-king.png",
+      "water-knight.png": "https://i.ibb.co/ynvWRcQb/water-knight.png",
+      "water-pawn-bishop.png": "https://i.ibb.co/5hRgL9Zx/water-pawn-bishop.png",
+      "water-pawn-knight.png": "https://i.ibb.co/TxNCxKSp/water-pawn-knight.png",
+      "water-pawn-queen.png": "https://i.ibb.co/nMkV59YZ/water-pawn-queen.png",
+      "water-pawn-rook.png": "https://i.ibb.co/Gfzw2bvn/water-pawn-rook.png",
+      "water-queen.png": "https://i.ibb.co/hxmNRMKx/water-queen.png",
+      "water-rook.png": "https://i.ibb.co/tMMFk6PV/water-rook.png"
+    };
+
+    return urlMap[filename] || null;
+  }
+
+  function updateTurnDisplay() {
+    const color = currentColor();
+    const turnDisplay = document.getElementById("turnDisplay");
+    if (!turnDisplay) return;
+
+    // stable / neutral name and single color
+    const colorName = {
+      BLACK: "Earth (Black)",
+      YELLOW: "Air (Yellow)",
+      BLUE: "Water (Blue)",
+      RED: "Fire (Red)"
+    }[color] || color;
+
+    const meta = document.querySelector(".meta");
+    const metaText = meta ? (meta.textContent || "").trim() : "";
+
+    // Detect game over by looking for 'win' or '🤝 Draw' in the meta line.
+    // We intentionally rely on the canonical meta lines (which your code sets).
+    const metaLower = metaText.toLowerCase();
+    const gameEnded = metaText && (metaLower.includes("win!") || metaLower.startsWith("🤝 draw"));
+
+    if (gameEnded) {
+      // show the canonical meta line (winner/draw) in the turn-display
+      turnDisplay.textContent = metaText;
+      turnDisplay.style.color = "#222";        // stable neutral color you requested
+      turnDisplay.style.display = "block";
+
+      // show overlay
+      const overlay = document.getElementById("boardOverlay");
+      if (overlay) {
+        overlay.classList.add("visible");
+      }
+
+      // mark global game-over flag (used by global capture handlers below)
+      window.gameOver = true;
+      return;
+    }
+
+    // Normal (non-ended) case — show whose turn it is.
+    turnDisplay.textContent = `CURRENT TURN: ${colorName}`;
+    turnDisplay.style.color = "#222"; // neutral color still
+    turnDisplay.style.display = "block";
+
+    // Sync bottom-left meta message (keep meta as current turn hint)
+    if (meta) {
+      meta.textContent = `TURN: ${colorName} – Click a piece to move`;
+    }
+
+    // make sure overlay is hidden if not ended (defensive)
+    const overlay = document.getElementById("boardOverlay");
+    if (overlay) {
+      overlay.classList.remove("visible");
+    }
+    // ensure global flag is reset if somehow was set
+    window.gameOver = false;
+  }
+
+
+  // --- setStartingTurnFromArrayName ---
+  function setStartingTurnFromArrayName(name) {
+    const firstWord = name.split(" ")[0].toUpperCase();
+    let startColor = "BLUE";
+    switch (firstWord) {
+      case "WATER": startColor = "BLUE"; break;
+      case "FIRE":  startColor = "RED"; break;
+      case "AIR":   startColor = "YELLOW"; break;
+      case "EARTH": startColor = "BLACK"; break;
+    }
+    const idx = turnOrder.indexOf(startColor);
+    currentTurnIndex = idx >= 0 ? idx : 0;
+    updateTurnDisplay();
+    console.log(`🧭 Starting turn set from array name "${name}" → ${startColor}`);
+    const first = currentColor();
+    if (controlMode[first] === "BOT") {
+      setTimeout(() => playGreedyMove(first), 1000);
+    }
+  }
+
+
+  // build grid first (so render() can reference tiles)
+  for(let rank=8;rank>=1;rank--){
+    for(let f=0;f<8;f++){
+      const coord = files[f]+rank;
+      const tile = document.createElement('div');
+      tile.className = 'tile '+(((f+rank)%2===0)?'dark':'light');
+      tile.dataset.coord = coord;
+      board.appendChild(tile);
+    }
+  }
+
+  // unicode abbrev map
+  const abbrev = {
+    king:   "♔",
+    queen:  "♕",
+    rook:   "♖",
+    bishop: "♗",
+    knight: "♘",
+    pawn:   "♙"
+  };
+
+  function makeAbbrev(str){
+    str = str.trim().toLowerCase();
+    if(str.startsWith("pawn of")){
+      const subtype = str.split(" ").pop();
+      return abbrev.pawn + subtype[0];
+    }
+    if(str.startsWith("pawn_")){
+      const subtype = str.split("_")[1];
+      return abbrev.pawn + subtype[0];
+    }
+    if(str === "pawn") return abbrev.pawn;
+    return abbrev[str] || "?";
+  }
+
+  // movement helpers
+  const dirs = {
+    king:[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]],
+    knight:[[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]],
+    rook:[[1,0],[-1,0],[0,1],[0,-1]],
+    bishop:[[1,1],[1,-1],[-1,1],[-1,-1]],
+    queen:[[2,0],[-2,0],[0,2],[0,-2],[2,2],[2,-2],[-2,2],[-2,-2]]
+  };
+  const moveDir = {
+    YELLOW:[0,-1], RED:[0,1], BLUE:[-1,0], BLACK:[1,0]
+  };
+
+  const pawnDirections = {
+    YELLOW: { forward: [0, -1], promotionRank: 1 }, // moves toward rank 1
+    RED:    { forward: [0, 1],  promotionRank: 8 },
+    BLUE:   { forward: [-1, 0], promotionFile: 'a'.charCodeAt(0) }, // lowercase
+    BLACK:  { forward: [1, 0],  promotionFile: 'h'.charCodeAt(0) }, // lowercase
+  };
+
+
+  // throne squares (match arrays JSON starting corners)
+  const throneSquares = {
+    YELLOW: "a8",
+    BLUE:   "h8",
+    RED:    "h1",
+    BLACK:  "a1"
+  };
+
+  // throne pair tracking & broken flags
+  const thronePairs = { YELLOW: [], BLUE: [], RED: [], BLACK: [] };
+  const throneBroken = { YELLOW: false, BLUE: false, RED: false, BLACK: false };
+
+  function isTeammate(color1, color2) {
+    const teamA = ["BLUE", "BLACK"];
+    const teamB = ["RED", "YELLOW"];
+    return (teamA.includes(color1) && teamA.includes(color2)) ||
+          (teamB.includes(color1) && teamB.includes(color2));
+  }
+
+  function freezeArmy(color) {
+    for (const p of pieces) {
+      if (p.color === color) p.frozen = true;
+    }
+    document.querySelector('.meta').textContent = `${color} king captured — ${color} army frozen.`;
+  }
+
+  function unfreezeArmy(color) {
+    for (const p of pieces) {
+      if (p.color === color) p.frozen = false;
+    }
+    document.querySelector('.meta').textContent = `${color} army unfrozen`;
+  }
+
+function seizeThrone(throneColor, seizerColor) {
+  if (isTeammate(throneColor, seizerColor)) {
+    const anyFrozen = pieces.some(p => p.color === throneColor && p.frozen);
+    if (anyFrozen) {
+      unfreezeArmy(throneColor);
+      lastUnfrozen = true; // ✅ mark that an unfreeze occurred this move
+    }
+    document.querySelector('.meta').textContent =
+      `${seizerColor} has seized control of ${throneColor}'s army`;
+  }
+}
+
+  // return pieces on a coordinate; active (non-frozen) pieces first
+  function getPieceAt(coord){
+    const arr = pieces.filter(p => p.coord === coord);
+    arr.sort((a, b) => {
+      const af = a.frozen ? 1 : 0;
+      const bf = b.frozen ? 1 : 0;
+      return af - bf;
+    });
+    return arr;
+  }
+
+  function canPromote(pawn) {
+    const dir = pawnDirections[pawn.color];
+    const [x, y] = coordToXY(pawn.coord);
+    const fileChar = pawn.coord[0].charCodeAt(0);
+
+    if (pawn.color === 'YELLOW' && y === dir.promotionRank - 1) return true;
+    if (pawn.color === 'RED' && y === dir.promotionRank - 1) return true;
+    if (pawn.color === 'BLUE' && fileChar === dir.promotionFile) return true;
+    if (pawn.color === 'BLACK' && fileChar === dir.promotionFile) return true;
+    return false;
+  }
+
+
+  // -------------------------
+  // Valid-move generation
+  // -------------------------
+  function getValidMoves(piece) {
+    let results = [];
+    const [x, y] = coordToXY(piece.coord);
+    const type = piece.type;
+
+    function addMove(nx, ny) {
+      if (!inBounds(nx, ny)) return;
+      const coord = xyToCoord(nx, ny);
+      const occ = getPieceAt(coord);
+      if (occ.length) {
+        if (!isTeammate(piece.color, occ[0].color) && !occ[0].frozen) results.push(coord);
+      } else {
+        results.push(coord);
+      }
+    }
+
+    // --- Movement generation per type ---
+    if (type === "king") {
+      for (const [dx, dy] of dirs.king) addMove(x + dx, y + dy);
+    } else if (type === "rook") {
+      for (const [dx, dy] of dirs.rook) {
+        let nx = x + dx, ny = y + dy;
+        while (inBounds(nx, ny)) {
+          const coord = xyToCoord(nx, ny);
+          const occ = getPieceAt(coord);
+          if (occ.length) {
+            if (!isTeammate(piece.color, occ[0].color) && !occ[0].frozen) results.push(coord);
+            break;
+          }
+          results.push(coord);
+          nx += dx; ny += dy;
+        }
+      }
+    } else if (type === "bishop") {
+      for (const [dx, dy] of dirs.bishop) {
+        let nx = x + dx, ny = y + dy;
+        while (inBounds(nx, ny)) {
+          const coord = xyToCoord(nx, ny);
+          const occ = getPieceAt(coord);
+          if (occ.length) {
+            if (!isTeammate(piece.color, occ[0].color) && !occ[0].frozen) results.push(coord);
+            break;
+          }
+          results.push(coord);
+          nx += dx; ny += dy;
+        }
+      }
+    } else if (type === "queen") {
+      for (const [dx, dy] of dirs.queen) addMove(x + dx, y + dy);
+    } else if (type === "knight") {
+      for (const [dx, dy] of dirs.knight) addMove(x + dx, y + dy);
+    } else if (type.startsWith("pawn_")) {
+      const subtype = type.split("_")[1];
+      let step = [0, 0], caps = [];
+      if (piece.color === "RED") { step = [0, 1]; caps = [[1, 1], [-1, 1]]; }
+      else if (piece.color === "YELLOW") { step = [0, -1]; caps = [[1, -1], [-1, -1]]; }
+      else if (piece.color === "BLUE") { step = [-1, 0]; caps = [[-1, 1], [-1, -1]]; }
+      else if (piece.color === "BLACK") { step = [1, 0]; caps = [[1, 1], [1, -1]]; }
+
+      const f = xyToCoord(x + step[0], y + step[1]);
+      if (inBounds(x + step[0], y + step[1]) && !getPieceAt(f).length) results.push(f);
+      for (const [dx, dy] of caps) {
+        const c = xyToCoord(x + dx, y + dy);
+        if (inBounds(x + dx, y + dy)) {
+          const occ = getPieceAt(c);
+          if (occ.length && !isTeammate(piece.color, occ[0].color) && !occ[0].frozen) results.push(c);
+        }
+      }
+    }
+
+    // --- Universal safety rule (Zalewsky interpretation) ---
+    const filteredMoves = [];
+    const ownKing = pieces.find(p => p.type === "king" && p.color === piece.color && !p.frozen);
+    const kingInCheck = ownKing ? ownKing.inCheck : false;
+
+    for (const coord of results) {
+      const original = piece.coord;
+      const captured = pieces.find(p => p.coord === coord && !isTeammate(p.color, piece.color));
+      const backup = [...pieces];
+
+      // --- SPECIAL CASE: kings in check may move into check again ---
+      if (piece.type === "king" && piece.inCheck) {
+        // Allow any adjacent square that isn't occupied by a friendly/frozen piece
+        const occ = pieces.find(p => p.coord === coord);
+        if (!occ || (!isTeammate(piece.color, occ.color) && !occ.frozen)) {
+          filteredMoves.push(coord);
+          continue; // skip normal filtering for this square
+        }
+      }
+
+      piece.coord = coord;
+      if (captured) pieces = pieces.filter(p => p !== captured);
+
+      updateCheckState(true);
+      const stillChecked = ownKing ? ownKing.inCheck : false;
+
+      piece.coord = original;
+      pieces = backup;
+      updateCheckState(true);
+
+      // ✅ Revised Zalewsky logic (fix for "king checked and blocked" skip bug)
+      if (!ownKing) {
+        filteredMoves.push(coord);
+      } else if (!kingInCheck) {
+        // normal rule: must not newly expose king to check
+        if (!stillChecked) filteredMoves.push(coord);
+      } else {
+        // when already in check:
+        // allow any move that does not *add* extra threats
+        // (so: permit neutral or relieving moves even if check persists)
+        const before = ownKing.threats ? ownKing.threats.length : 0;
+        const wasChecked = ownKing.inCheck;
+
+        // simulate again with full threat update
+        const origCoord = piece.coord;
+        const backupPieces = [...pieces];
+        piece.coord = coord;
+        updateCheckState(true);
+        const after = ownKing.threats ? ownKing.threats.length : 0;
+        const remainsChecked = ownKing.inCheck;
+        piece.coord = origCoord;
+        pieces = backupPieces;
+        updateCheckState(true);
+
+        // ✅ keep moves that don't *increase* the number of checks
+        if (after <= before) filteredMoves.push(coord);
+      }
+    }
+
+
+    return filteredMoves;
+  }
+
+
+
+
+
+  // --- SAFETY CHECK (non-recursive) ---
+  function isSquareSafe(color, coord) {
+    // Determine whether a given square (coord) is safe for 'color'
+    // by checking for any enemy piece that can attack it *in the current board state*.
+
+    for (const enemy of pieces) {
+      // Skip frozen, same-color, or allied pieces
+      if (enemy.frozen) continue;
+      if (enemy.color === color) continue;
+      if (isTeammate(enemy.color, color)) continue;
+
+      const [ex, ey] = coordToXY(enemy.coord);
+      const [tx, ty] = coordToXY(coord);
+      const dx = tx - ex, dy = ty - ey;
+      const absDx = Math.abs(dx), absDy = Math.abs(dy);
+      const sx = Math.sign(dx), sy = Math.sign(dy);
+
+      // === Pawn threats ===
+      if (enemy.type.startsWith("pawn")) {
+        let attacks = [];
+        if (enemy.color === "YELLOW") attacks = [[-1, -1], [1, -1]];
+        else if (enemy.color === "RED") attacks = [[-1, 1], [1, 1]];
+        else if (enemy.color === "BLUE") attacks = [[-1, -1], [-1, 1]];
+        else if (enemy.color === "BLACK") attacks = [[1, -1], [1, 1]];
+        for (const [ax, ay] of attacks) {
+          if (tx === ex + ax && ty === ey + ay) return false;
+        }
+        continue;
+      }
+
+      // === Knight threats ===
+      if (enemy.type === "knight") {
+        if ((absDx === 1 && absDy === 2) || (absDx === 2 && absDy === 1))
+          return false;
+        continue;
+      }
+
+      // === King threats ===
+      if (enemy.type === "king") {
+        if (absDx <= 1 && absDy <= 1) return false;
+        continue;
+      }
+
+      // === Rook threats ===
+      if (enemy.type === "rook") {
+        if (dx === 0 || dy === 0) {
+          let cx = ex + sx, cy = ey + sy;
+          let blocked = false;
+          while (cx !== tx || cy !== ty) {
+            if (getPieceAt(xyToCoord(cx, cy)).some(p => !p.frozen)) {
+              blocked = true;
+              break;
+            }
+            cx += sx; cy += sy;
+          }
+          if (!blocked) return false;
+        }
+        continue;
+      }
+
+      // === Bishop threats ===
+      if (enemy.type === "bishop") {
+        if (absDx === absDy) {
+          let cx = ex + sx, cy = ey + sy;
+          let blocked = false;
+          while (cx !== tx || cy !== ty) {
+            if (getPieceAt(xyToCoord(cx, cy)).some(p => !p.frozen)) {
+              blocked = true;
+              break;
+            }
+            cx += sx; cy += sy;
+          }
+          if (!blocked) return false;
+        }
+        continue;
+      }
+
+      // === Enochian queen (leaper) threats ===
+      if (enemy.type === "queen") {
+        // Two-square orthogonal or diagonal jump
+        if (
+          (absDx === 2 && absDy === 0) ||
+          (absDx === 0 && absDy === 2) ||
+          (absDx === 2 && absDy === 2)
+        ) {
+          return false;
+        }
+        continue;
+      }
+    }
+
+    return true;
+  }
+
+
+
+  function kingHasSafeEscape(king) {
+    const moves = [];
+    const [x, y] = coordToXY(king.coord);
+
+    for (const [dx, dy] of dirs.king) {
+      const nx = x + dx, ny = y + dy;
+      if (!inBounds(nx, ny)) continue;
+      const coord = xyToCoord(nx, ny);
+      const occ = getPieceAt(coord);
+
+      // skip moving onto friendly or frozen
+      if (occ.length && (isTeammate(king.color, occ[0].color) || occ[0].frozen)) continue;
+
+      // Temporarily apply move to test
+      const original = king.coord;
+      const captured = occ.length ? occ[0] : null;
+      const backupPieces = [...pieces];
+
+      // simulate move
+      pieces = pieces.filter(p => p !== captured);
+      king.coord = coord;
+
+      const safe = isSquareSafe(king.color, coord);
+
+      // revert
+      king.coord = original;
+      pieces = backupPieces;
+
+      // If move is safe *or* captures the only checking piece, treat as escape
+      if (safe) {
+        moves.push(coord);
+      } else if (captured) {
+        // Was the captured piece one of the checking threats?
+        const kingsInCheck = pieces.filter(p => p.type === "king" && !p.frozen && p.inCheck);
+        const thisKingCheck = kingsInCheck.find(k => k.color === king.color);
+        if (thisKingCheck && thisKingCheck.threats.some(t => t.id === captured.id)) {
+          moves.push(coord);
+        }
+      }
+    }
+
+    return moves.length > 0;
+  }
+
+  function clearHighlights(){ document.querySelectorAll('.tile').forEach(t=>t.classList.remove('selected','valid')); }
+
+  // -------------------------
+  // Load array & initial throne bookkeeping
+  // -------------------------
+  function loadArray(selectedArray) {
+    // ✅ Reset global flags and overlay for new game
+    window.gameOver = false;
+    const overlay = document.getElementById("boardOverlay");
+    if (overlay) {
+      overlay.style.display = "none";
+      overlay.style.pointerEvents = "none";
+    }
+
+
+    // reset throne bookkeeping
+    for (const c of Object.keys(throneBroken)) throneBroken[c] = false;
+    for (const c of Object.keys(thronePairs)) thronePairs[c] = [];
+
+    pieces = [];
+    for (const [color, positions] of Object.entries(selectedArray.positions)) {
+      for (const [coord, plist] of Object.entries(positions)) {
+        for (let type of plist) {
+          type = type.toLowerCase()
+            .replace("pawn of ", "pawn_")
+            .replace(/\s+/g, "_");
+          const id = color + "_" + type + "_" + coord;
+          pieces.push({ id, color, type, coord, frozen: false });
+
+          // if this piece is on its throne at setup, record it as part of the original pair
+          const myThrone = throneSquares[color];
+          if (coord === myThrone) {
+            thronePairs[color].push(id);
+          }
+        }
+      }
+    }
+
+    document.querySelector('.meta').textContent = `Loaded: ${selectedArray.name}`;
+    setStartingTurnFromArrayName(selectedArray.name);
+    render();
+  }
+
+
+  function handlePromotion(pawn) {
+    const armyPawns = pieces.filter(p => p.color === pawn.color && p.type.startsWith('pawn_'));
+    const capturedPawns = 4 - armyPawns.length; // at least one captured?
+
+    const isPrivileged = (() => {
+      const active = pieces.filter(p => p.color === pawn.color && !p.frozen);
+      const kings = active.filter(p => p.type === 'king').length;
+      const pawns = active.filter(p => p.type.startsWith('pawn_')).length;
+      const majors = active.filter(p => ['queen','bishop'].includes(p.type)).length;
+      return (kings === 1 && pawns === 1 && majors <= 1);
+    })();
+
+    const baseType = pawn.type.split('_')[1]; // "rook","knight","bishop","queen"
+    let options = [];
+
+    if (isPrivileged) {
+      options = ['queen','rook','bishop','knight'];
+    } else if (capturedPawns > 0) {
+      options = [baseType];
+    }
+
+    if (options.length === 0) {
+      console.log(`Promotion delayed for ${pawn.color} (no pawn losses yet)`);
+      return;
+    }
+
+    let choice = options[0];
+    if (options.length > 1) {
+      if (controlMode[pawn.color] === "BOT") {
+        // 🤖 Simple bot choice: pick at random
+        choice = options[Math.floor(Math.random() * options.length)];
+        console.log(`🤖 ${pawn.color} bot auto-promotes pawn to ${choice}`);
+      } else {
+        // 🧍 Human player: prompt
+        choice = prompt(`Promote ${pawn.color} pawn to: ${options.join(', ')}`, baseType);
+        if (!options.includes(choice)) choice = baseType;
+      }
+    }
+
+
+    // Demote original if privileged promotion duplicates type
+    if (isPrivileged) {
+      const existing = pieces.find(p => p.color === pawn.color && p.type === choice);
+      if (existing) existing.type = `pawn_${choice}`;
+    }
+
+    pawn.type = choice;
+    pawn.promotedTo = choice;
+    pawn.justPromoted = true; // ✅ mark for one-time notation
+    console.log(`${pawn.color} pawn promoted to ${choice}`);
+  }
+
+  function checkDelayedPromotions() {
+    for (const p of pieces) {
+      if (p.type.startsWith('pawn_') && canPromote(p)) {
+        handlePromotion(p);
+      }
+    }
+  }
+
+  // === Concourse detection & resolution (Bishops & Queens) ===
+  const CONCOURSE_ZONES = [
+    ["b2","b3","c2","c3"], // southwest
+    ["b6","b7","c6","c7"], // northwest
+    ["f6","f7","g6","g7"], // northeast
+    ["f2","f3","g2","g3"], // southeast
+    ["d4","d5","e4","e5"]  // center (corrected)
+  ];
+
+  /**
+   * checkConcourse(lastMovedId)
+   *  Called immediately after a move (and after promotions).
+   *  Returns true if a concourse occurred and changed board state.
+   */
+  function checkConcourse(lastMovedId) {
+    if (!lastMovedId) return false;
+    const mover = pieces.find(p => p.id === lastMovedId);
+    if (!mover) return false;
+    if (!(mover.type === "bishop" || mover.type === "queen")) return false;
+
+    for (const zone of CONCOURSE_ZONES) {
+      if (!zone.includes(mover.coord)) continue;
+
+      // Find all pieces in the zone (ignore empty squares)
+      const occupants = zone
+        .map(c => pieces.find(p => p.coord === c))
+        .filter(Boolean);
+
+      // Require all 4 squares filled and all same type
+      if (occupants.length !== 4) continue;
+      if (!occupants.every(p => p.type === mover.type)) continue;
+
+      const others = occupants.filter(p => p.id !== mover.id);
+
+      // Classify by relationship
+      const enemyPieces = others.filter(o => !isTeammate(o.color, mover.color));
+      const allyPieces  = others.filter(o => isTeammate(o.color, mover.color) && o.color !== mover.color);
+
+      // ✅ RULE: must be exactly 3 others: two enemies + one ally (any combination of armies)
+      if (enemyPieces.length >= 2 && allyPieces.length >= 1) {
+        const enemyIds = new Set(enemyPieces.map(e => e.id));
+        pieces = pieces.filter(p => !enemyIds.has(p.id));
+
+        const ally = allyPieces[0];
+        const allyPiece = pieces.find(p => p.id === ally.id);
+        if (allyPiece) {
+          allyPiece.color = mover.color;
+          allyPiece.id = `${allyPiece.color}_${allyPiece.type}_${allyPiece.coord}`;
+        }
+
+        lastConcourse = { captured: enemyPieces, recruited: [allyPiece] };
+
+        console.log(`⚜️ Concourse completed by ${mover.color} ${mover.type} at ${mover.coord}`);
+        document.querySelector(".meta").textContent =
+          `⚜️ ${mover.color} completes Concourse of ${mover.type}s — captured ${enemyPieces.map(e => e.color + ":" + e.coord).join(", ")} and converted ${ally.color}:${ally.coord}`;
+        return true;
+      }
+    }
+    return false;
+  }
+
+
+  // --- GAME STATE CHECKER (Win / Draw Conditions) ---
+  function checkGameState() {
+    const teams = {
+      redTeam: ["RED", "YELLOW"],
+      blueTeam: ["BLUE", "BLACK"]
+    };
+
+    // --- Helper: does a king piece (any) exist for color? ---
+    function kingExists(color) {
+      return pieces.some(p => p.color === color && p.type === "king");
+    }
+
+    // --- Helper: is the king either frozen OR missing (captured)? ---
+    function kingIsFrozenOrMissing(color) {
+      const k = pieces.find(p => p.color === color && p.type === "king");
+      if (!k) return true;        // missing => out of game
+      return !!k.frozen;          // frozen => out of game
+    }
+
+    // --- Helper: is the army reduced to only a king (and that king is active)? ---
+    function isArmyBare(color) {
+      const active = pieces.filter(p => p.color === color && !p.frozen);
+      return (active.length === 1 && active[0].type === "king");
+    }
+
+    // --- Helper: does the army have any legal move (ignores frozen)? ---
+    function hasLegalMove(color) {
+      const armyPieces = pieces.filter(p => p.color === color && !p.frozen);
+      for (const piece of armyPieces) {
+        const moves = getValidMoves(piece);
+        if (moves && moves.length > 0) return true;
+      }
+      return false;
+    }
+
+    // --- Victory conditions ---
+    const redOut   = kingIsFrozenOrMissing("RED");
+    const yellowOut = kingIsFrozenOrMissing("YELLOW");
+    const blueOut  = kingIsFrozenOrMissing("BLUE");
+    const blackOut = kingIsFrozenOrMissing("BLACK");
+
+    // Opponent wins when both allied kings are out/frozen
+    if (redOut && yellowOut) {
+      document.querySelector(".meta").textContent =
+        "🟦 Blue & Black win! (Both Red & Yellow kings out)";
+      freezeBoard();
+      return true;
+    }
+    if (blueOut && blackOut) {
+      document.querySelector(".meta").textContent =
+        "🟥 Red & Yellow win! (Both Blue & Black kings out)";
+      freezeBoard();
+      return true;
+    }
+
+    // --- Draw checks ---
+    function teamDrawCheck(teamKey) {
+      const [a, b] = teams[teamKey];
+
+      // 1️⃣ Canonical stalemate check
+      const aKingExists = kingExists(a);
+      const bKingExists = kingExists(b);
+
+      const aHasMoves = hasLegalMove(a);
+      const bHasMoves = hasLegalMove(b);
+
+      // An army is canonically stalemated if its king exists,
+      // it's not in check, and it has no legal moves.
+      const aKingObj = pieces.find(p => p.color === a && p.type === "king");
+      const bKingObj = pieces.find(p => p.color === b && p.type === "king");
+      const aInCheck = aKingObj ? !!aKingObj.inCheck : false;
+      const bInCheck = bKingObj ? !!bKingObj.inCheck : false;
+
+      const aStalemated = aKingExists && !aInCheck && !aHasMoves;
+      const bStalemated = bKingExists && !bInCheck && !bHasMoves;
+
+      // 2️⃣ Bare + frozen (throne blocked) remains valid draw condition
+      const aBare = isArmyBare(a);
+      const bBare = isArmyBare(b);
+      const aFrozen = pieces.some(p => p.color === a && p.frozen);
+      const bFrozen = pieces.some(p => p.color === b && p.frozen);
+
+      // bare + frozen -> draw (regardless of stalemate)
+      if ((aBare && bFrozen) || (bBare && aFrozen)) {
+        document.querySelector(".meta").textContent =
+          "🤝 Draw! (Bare army + frozen ally with throne blocked)";
+        freezeBoard();
+        return { draw: true };
+      }
+
+      // 3️⃣ Canonical stalemate + ally out-of-game (per 8.11)
+      if (aStalemated && kingIsFrozenOrMissing(b)) {
+        document.querySelector(".meta").textContent =
+          "🤝 Draw! (Army stalemated, ally out of game)";
+        freezeBoard();
+        return { draw: true };
+      }
+      if (bStalemated && kingIsFrozenOrMissing(a)) {
+        document.querySelector(".meta").textContent =
+          "🤝 Draw! (Army stalemated, ally out of game)";
+        freezeBoard();
+        return { draw: true };
+      }
+
+      // 4️⃣ Both stalemated but both still in game → no draw, play continues.
+      // 5️⃣ Temporary stalemates (checked & blocked) → handled in turn skip logic, not here.
+
+      return { draw: false };
+    }
+
+    const redTeamResult = teamDrawCheck("redTeam");
+    const blueTeamResult = teamDrawCheck("blueTeam");
+
+    if (redTeamResult.draw || blueTeamResult.draw) return true;
+
+    return false;
+  }
+
+  function isInCheck(color) {
+    const king = pieces.find(p => p.type === "king" && p.color === color && !p.frozen);
+    if (!king) return false;
+    updateCheckState(true);
+    return !!king.inCheck;
+  }
+
+
+  function nextTurn() {
+    console.groupCollapsed("TURN ROTATION DEBUG");
+
+    updateCheckState(); // ensure check flags are current
+    let skippedTurns = [];
+    const meta = document.querySelector(".meta");
+
+    for (let i = 0; i < 4; i++) {
+      currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
+      const color = currentColor();
+      const frozen = pieces.some(p => p.color === color && p.frozen);
+      console.log(`→ Evaluating ${color}: frozen=${frozen}`);
+
+      let hasMoves = false;
+      let message = "";
+
+      if (!frozen) {
+        const army = pieces.filter(p => p.color === color && !p.frozen);
+        const king = army.find(p => p.type === "king");
+
+        if (king) {
+          const kingInCheck = isInCheck(king.color);
+
+          // --- 1️⃣ determine king moves ---
+          let kingMoves = [];
+          // When in check, allow the king all adjacent squares (even into check)
+          if (kingInCheck) {
+            const [kx, ky] = coordToXY(king.coord);
+            kingMoves = [];
+            for (const [dx, dy] of dirs.king) {
+              const nx = kx + dx, ny = ky + dy;
+              if (!inBounds(nx, ny)) continue;
+              const c = xyToCoord(nx, ny);
+              const occ = getPieceAt(c);
+              // Can step onto empty or enemy square (even if still in check)
+              if (!occ.length || (!isTeammate(king.color, occ[0].color) && !occ[0].frozen))
+                kingMoves.push(c);
+            }
+          } else {
+            kingMoves = getValidMoves(king);
+          }
+
+
+          if (kingMoves.length > 0) {
+            hasMoves = true;
+            message = kingInCheck
+              ? `${capitalize(color)} King in check — must move (even into check).`
+              : `${capitalize(color)} King can move safely.`;
+          } else {
+            const allies = army.filter(a => a.id !== king.id);
+            let canMove = false;
+
+            // 1️⃣ Any ally that can capture or block a checking piece?
+            for (const ally of allies) {
+              const moves = getValidMoves(ally);
+              if (moves.length > 0) {
+                canMove = true;
+                break;
+              }
+            }
+
+            if (canMove) {
+              hasMoves = true;
+              message = `${capitalize(color)} King blocked — may move other piece safely.`;
+            } else {
+              // ✅ Allow neutral moves that don’t worsen the check state
+              for (const ally of allies) {
+                const moves = getValidMoves(ally);
+                for (const mv of moves) {
+                  const orig = ally.coord;
+                  const backup = [...pieces];
+
+                  ally.coord = mv;
+                  updateCheckState(true);
+                  const worsened = king.inCheck;
+                  ally.coord = orig;
+                  pieces = backup;
+                  updateCheckState(true);
+
+                  if (!worsened) {
+                    hasMoves = true;
+                    message = `${capitalize(color)} may make neutral move despite check.`;
+                    canMove = true;
+                    break;
+                  }
+                }
+                if (canMove) break;
+              }
+              if (!canMove)
+                message = `${capitalize(color)} King blocked and no legal moves — skipped.`;
+            }
+          }
+        } else {
+          message = `${capitalize(color)} has no King — skipped.`;
+        }
+
+      }
+
+      console.log(`✅ ${color} hasMoves=${hasMoves}`);
+      if (!frozen && hasMoves) {
+        if (meta) meta.textContent = message || `TURN: ${capitalize(color)} — click a piece to move.`;
+        console.log(`🎯 ${color} will take turn.`);
+        break;
+      } else {
+        console.log(`⏭️ Queuing skip for ${color} (frozen=${frozen}, hasMoves=${hasMoves})`);
+        skippedTurns.push(color);
+      }
+    }
+
+    // --- finalize rotation ---
+    pendingSkips = skippedTurns.slice();
+    updateTurnDisplay();
+    console.log(`👉 Turn now belongs to ${currentColor()}`);
+    console.groupEnd();
+
+    const next = currentColor();
+    if (controlMode[next] === "BOT") {
+      if (meta) meta.textContent = `🤖 ${capitalize(next)} bot is thinking...`;
+      setTimeout(() => playGreedyMove(next), 1000);
+    } else {
+      if (pendingSkips.length) {
+        for (const c of pendingSkips) recordMove({ color: c, skipped: true });
+        pendingSkips = [];
+      }
+    }
+    // After completing turn rotation, re-evaluate win/draw
+    if (checkGameState()) {
+      updateTurnDisplay(); // show winner/draw in top banner
+      return;              // stop further turns once game is ended
+    }
+
+  }
+
+
+
+  function recordMove({
+    color,
+    piece,
+    from,
+    to,
+    captures = [],
+    concourse = false,
+    throneSeizure = false,
+    promotion = null,
+    check = false,
+    kingCaptured = false,
+    recruited = [],
+    skipped = false
+  }) {
+
+    if (!notationArea)
+      return console.warn("notationArea not found — skipping notation output");
+
+    const colorLetter = { BLACK:'E', YELLOW:'A', BLUE:'W', RED:'F' }[color] || '?';
+    const pieceLetterMap = { pawn:'P', rook:'R', bishop:'B', knight:'N', queen:'Q', king:'K' };
+    const pieceLetter = piece
+      ? (pieceLetterMap[Object.keys(pieceLetterMap).find(k => piece.type.includes(k))] || '?')
+      : '';
+
+    let notation = '';
+
+    if (skipped) {
+      notation = '---';
+    } else {
+      notation += colorLetter + pieceLetter + from;
+
+      // 🩸 SPECIAL CASE: Concourse moves get custom capture+recruit notation
+      if (concourse) {
+        notation += 'x(';
+        if (captures.length) {
+          const capList = captures.map(c => {
+            const cColor = { BLACK:'E', YELLOW:'A', BLUE:'W', RED:'F' }[c.color];
+            const cPieceKey = Object.keys(pieceLetterMap).find(k => c.type.includes(k)) || '?';
+            const cPiece = pieceLetterMap[cPieceKey];
+            return `${cColor}${cPiece}`;
+          }).join(',');
+          notation += capList;
+        }
+        notation += ')';
+
+        if (recruited.length) {
+          const recList = recruited.map(r => {
+            const rColor = { BLACK:'E', YELLOW:'A', BLUE:'W', RED:'F' }[r.color];
+            const rPieceKey = Object.keys(pieceLetterMap).find(k => r.type.includes(k)) || '?';
+            const rPiece = pieceLetterMap[rPieceKey];
+            return `${rColor}${rPiece}`;
+          }).join(',');
+          notation += `[${recList}]`;
+        }
+
+        notation += to + '*'; // add destination + concourse marker
+
+      } else {
+        // 🧩 Normal (non-concourse) moves
+        if (captures.length) {
+          const capList = captures.map(c => {
+            const cColor = { BLACK:'E', YELLOW:'A', BLUE:'W', RED:'F' }[c.color];
+            const cPieceKey = Object.keys(pieceLetterMap).find(k => c.type.includes(k)) || '?';
+            const cPiece = pieceLetterMap[cPieceKey];
+            return `${cColor}${cPiece}`;
+          }).join(',');
+          notation += 'x(' + capList + ')';
+        }
+
+        notation += to;
+
+        // ✅ Only mark promotion if it happened this move
+        if (promotion && piece.justPromoted) {
+          notation += '=' + (pieceLetterMap[promotion] || '?');
+          piece.justPromoted = false;
+          piece.promotedTo = null; // 🩹 prevent repeats in delayed promotions
+        }
+
+
+        if (kingCaptured) notation += '++';
+        if (check) notation += '+';
+        if (throneSeizure) notation += '!';
+      }
+    }
+
+    // push to log
+    moveLog.push(notation);
+
+    // print every 4 armies as one turn line (optional)
+    const total = moveLog.length;
+    if (total % 4 === 1) notationArea.textContent += `${moveNumber}. `;
+    notationArea.textContent += notation + ' ';
+    if (total % 4 === 0) {
+      notationArea.textContent += '\n';
+      moveNumber++;
+    }
+  }
+
+
+
+  // ============================================================
+  // GENERIC MOVE EXECUTION HELPER (used by both players and bots)
+  // ============================================================
+  function movePiece(piece, targetCoord) {
+    const targetPieces = getPieceAt(targetCoord);
+
+    // --- Capture handling ---
+    if (targetPieces.length) {
+      const target = targetPieces[0];
+
+      if (!target.frozen && !isTeammate(piece.color, target.color)) {
+        const throneOwner = Object.keys(throneSquares).find(c => throneSquares[c] === targetCoord);
+        if (throneOwner && !throneBroken[throneOwner]) {
+          const removed = pieces.filter(p => p.color === throneOwner && p.coord === targetCoord);
+          const removedIncludedKing = removed.some(r => r.type === 'king');
+          if (removed.length > 0) {
+            pieces = pieces.filter(p => !(p.color === throneOwner && p.coord === targetCoord));
+            if (removedIncludedKing) freezeArmy(throneOwner);
+            throneBroken[throneOwner] = true;
+          }
+        } else {
+          if (target.type === "king") {
+            pieces = pieces.filter(p => p.id !== target.id);
+            freezeArmy(target.color);
+            throneBroken[target.color] = true;
+          } else {
+            pieces = pieces.filter(p => p.id !== target.id);
+          }
+        }
+      }
+    }
+
+    // --- Mark throne broken if moving off own throne ---
+    const originCoord = piece.coord;
+    const myThrone = throneSquares[piece.color];
+    if (!throneBroken[piece.color] && originCoord === myThrone) {
+      throneBroken[piece.color] = true;
+    }
+
+    // --- Execute move ---
+    piece.coord = targetCoord;
+    lastMovedId = piece.id;
+
+    // --- Handle special cases ---
+    if (piece.type === "king") {
+      for (const [thColor, thCoord] of Object.entries(throneSquares)) {
+        if (targetCoord === thCoord && isTeammate(piece.color, thColor)) {
+          const occ = getPieceAt(targetCoord);
+          if (occ.length === 1 && occ[0].id === piece.id) {
+            seizeThrone(thColor, piece.color);
+          }
+        }
+      }
+    }
+
+    if (piece.type.startsWith('pawn_') && canPromote(piece)) {
+      handlePromotion(piece);
+    }
+
+    checkDelayedPromotions();
+
+    // 🔹 NEW: Check for bishop/queen concourse completions
+    const concourseTriggered = checkConcourse(piece.id);
+    if (concourseTriggered) {
+      const pieceRef = piece;
+      const from = originCoord;
+      const to = targetCoord;
+
+      // collect captured and recruited pieces from last concourse
+      const captured = lastConcourse?.captured || [];
+      const recruited = lastConcourse?.recruited || [];
+
+      render();
+      updateCheckState();
+      checkGameState();
+
+      recordMove({
+        color: pieceRef.color,
+        piece: pieceRef,
+        from,
+        to,
+        concourse: true,
+        captures: captured,
+        recruited: recruited
+      });
+
+      setTimeout(() => nextTurn(), 500);
+      return;
+    }
+
+
+
+    // gather captured pieces (if any)
+    const capturedThisMove = targetPieces.filter(t => !isTeammate(piece.color, t.color) && !t.frozen);
+
+    // detect concourse or throne events from earlier logic
+    const throneColor = Object.keys(throneSquares).find(c => throneSquares[c] === targetCoord);
+    const wasThrone = piece.type === 'king'
+      && throneColor
+      && isTeammate(piece.color, throneColor)
+      && throneColor !== piece.color
+      && pieces.some(p => p.color === throneColor && p.frozen); // only if ally is frozen
+
+    // detect check or king-capture (after move)
+    const afterChecks = updateCheckState();
+    const gaveCheck = afterChecks.some(k => k.threats.some(t => t.id === piece.id));
+    const capturedKing = capturedThisMove.some(c => c.type === 'king');
+
+    const wasConcourse = false;
+
+    setTimeout(() => {
+      const from = originCoord;
+      const to = targetCoord;
+      const captured = targetPieces.filter(t => !isTeammate(piece.color, t.color) && !t.frozen);
+
+      recordMove({
+        color: piece.color,
+        piece,
+        from,
+        to,
+        captures: captured,
+        concourse: wasConcourse,
+        throneSeizure: wasThrone,
+        promotion: piece.promotedTo || null,
+        check: gaveCheck,
+        kingCaptured: capturedKing
+      });
+
+      // If any skips are pending (queued by nextTurn), write them *after* this move.
+      if (pendingSkips && pendingSkips.length) {
+        // small delay to make notation feel smooth (optional)
+        setTimeout(() => {
+          for (const c of pendingSkips) recordMove({ color: c, skipped: true });
+          pendingSkips = [];
+        }, 10);
+      }
+    }, 50);
+
+
+
+
+
+    render();
+    updateCheckState();
+    checkGameState();
+  }
+
+
+
+  // ============================================================
+  // SIMPLE BOT: Random Legal Move Selector
+  // ============================================================
+
+// ============================================================
+// GREEDY BOT: Weighted piece-value evaluation (single-turn lookahead)
+// ============================================================
+  function playGreedyMove(color) {
+    // piece values tuned for Enochian rules (queen = short-range leaper)
+    const values = { pawn: 1, knight: 3, bishop: 3, queen: 3, rook: 5, king: 100 };
+
+    const movablePieces = pieces.filter(p => p.color === color && !p.frozen);
+    const allMoves = [];
+
+    // helper to read value even for "pawn_rook", etc.
+    function pieceValue(p) {
+      const key = Object.keys(values).find(k => p.type.includes(k)) || "pawn";
+      return values[key];
+    }
+
+    for (const piece of movablePieces) {
+      const moves = getValidMoves(piece);
+      for (const move of moves) {
+        const target = getPieceAt(move)[0];
+        let score = 0;
+
+        // reward capturing enemy pieces
+        if (target && !isTeammate(color, target.color)) {
+          score += pieceValue(target) * 10; // capture bonus scaled up
+        }
+
+        // simulate move → penalize exposing valuable piece
+        const backup = pieces.map(p => ({ ...p }));
+        const self = backup.find(p => p.id === piece.id);
+        self.coord = move;
+        const exposed = !isSquareSafe(color, move);
+        if (exposed) score -= pieceValue(piece) * 8;
+
+        // small encouragement to advance toward board center (greedy bias)
+        const [x, y] = coordToXY(move);
+        const centerDist = Math.abs(3.5 - x) + Math.abs(3.5 - y);
+        score += (4 - centerDist) * 0.2; // mild center bonus
+
+        // slight random jitter to break ties
+        score += Math.random() * 0.1;
+
+        allMoves.push({ piece, move, score });
+      }
+    }
+
+    if (allMoves.length === 0) {
+      console.log(`🤖 ${color} has no legal moves.`);
+      nextTurn();
+      return;
+    }
+
+    // choose best-scoring move
+    allMoves.sort((a, b) => b.score - a.score);
+    const choice = allMoves[0];
+
+    console.log(
+      `🤖 ${color} plays ${choice.piece.type}@${choice.piece.coord} → ${choice.move} (score ${choice.score.toFixed(2)})`
+    );
+
+    movePiece(choice.piece, choice.move);
+    render();
+    updateCheckState();
+    nextTurn();
+  }
+
+
+  // --- freezeBoard helper to stop play ---
+  function freezeBoard() {
+    const boardEl = document.querySelector(".board");
+    if (boardEl) boardEl.classList.add("ended");
+
+    // ensure state + UI reflect game-over immediately
+    window.gameOver = true;
+
+    // show overlay and ensure pointer-events are enabled
+    const overlay = document.getElementById("boardOverlay");
+    if (overlay) {
+      overlay.classList.add("visible");
+    }
+
+    // sync the turn display with whatever .meta currently has
+    try { updateTurnDisplay(); } catch (e) { /* defensive */ }
+  }
+
+
+  // Simplified threat generator used during simulations
+  function getThreatMoves(piece) {
+    const [x, y] = coordToXY(piece.coord);
+    const moves = [];
+    const add = (nx, ny) => { if (inBounds(nx, ny)) moves.push(xyToCoord(nx, ny)); };
+
+    if (piece.type === "king") dirs.king.forEach(([dx,dy]) => add(x+dx, y+dy));
+    else if (piece.type === "knight") dirs.knight.forEach(([dx,dy]) => add(x+dx, y+dy));
+    else if (piece.type === "rook") {
+      dirs.rook.forEach(([dx,dy]) => {
+        let nx = x + dx, ny = y + dy;
+        while (inBounds(nx, ny)) {
+          add(nx, ny);
+          if (getPieceAt(xyToCoord(nx, ny)).length) break;
+          nx += dx; ny += dy;
+        }
+      });
+    }
+    else if (piece.type === "bishop") {
+      dirs.bishop.forEach(([dx,dy]) => {
+        let nx = x + dx, ny = y + dy;
+        while (inBounds(nx, ny)) {
+          add(nx, ny);
+          if (getPieceAt(xyToCoord(nx, ny)).length) break;
+          nx += dx; ny += dy;
+        }
+      });
+    }
+    else if (piece.type === "queen") {
+      dirs.queen.forEach(([dx,dy]) => add(x + dx, y + dy));
+    }
+    else if (piece.type.startsWith("pawn_")) {
+      const color = piece.color;
+      if (color === "RED") [[-1,1],[1,1]].forEach(([dx,dy]) => add(x+dx, y+dy));
+      if (color === "YELLOW") [[-1,-1],[1,-1]].forEach(([dx,dy]) => add(x+dx, y+dy));
+      if (color === "BLUE") [[-1,1],[-1,-1]].forEach(([dx,dy]) => add(x+dx, y+dy));
+      if (color === "BLACK") [[1,1],[1,-1]].forEach(([dx,dy]) => add(x+dx, y+dy));
+    }
+    return moves;
+  }
+
+
+  // --- CHECK DETECTION + ENFORCEMENT (Isolated Per-King) ---
+  // --- UPDATED to avoid recursion during move simulations ---
+  function updateCheckState(simulating = false) {
+    const board = document.getElementById("board");
+    const kings = pieces.filter(p => p.type === "king" && !p.frozen);
+    const kingsInCheck = [];
+
+    if (!simulating) {
+      // Clear highlights only in normal mode
+      document.querySelectorAll(".tile.check").forEach(t => t.classList.remove("check"));
+    }
+
+    // Reset threat data
+    for (const k of kings) {
+      k.threats = [];
+    }
+
+    // === 1. Evaluate threats for each king ===
+    for (const king of kings) {
+      const threats = [];
+      for (const p of pieces) {
+        if (p.frozen || p.color === king.color) continue;
+        if (isTeammate(p.color, king.color)) continue;
+
+        // ⚙️ During simulations, use simpler threat map to prevent recursion
+        const moves = simulating ? getThreatMoves(p) : getValidMoves(p);
+
+        if (moves.includes(king.coord)) threats.push(p);
+      }
+
+      if (threats.length > 0) {
+        king.inCheck = true;
+        king.threats = threats;
+        kingsInCheck.push(king);
+        if (!simulating) {
+          const tile = board.querySelector(`[data-coord="${king.coord}"]`);
+          if (tile) tile.classList.add("check");
+        }
+      } else {
+        king.inCheck = false;
+        king.threats = [];
+      }
+    }
+
+    // === 2. Preserve check state visually ===
+    if (!simulating) {
+      for (const k of kings) {
+        const stillThreatened = !isSquareSafe(k.color, k.coord);
+        if (stillThreatened) {
+          k.inCheck = true;
+          if (!kingsInCheck.includes(k)) kingsInCheck.push(k);
+          const tile = board.querySelector(`[data-coord="${k.coord}"]`);
+          if (tile && !tile.classList.contains("check")) tile.classList.add("check");
+        }
+      }
+    }
+
+    // === 3. Update bottom-left meta message ===
+    if (!simulating) {
+      const meta = document.querySelector(".meta");
+      if (kingsInCheck.length > 0) {
+        const info = kingsInCheck
+          .map(k => `${k.color} king threatened by: ${k.threats.map(t => t.color + ":" + t.type + "@" + t.coord).join(", ")}`)
+          .join(" | ");
+        meta.textContent = `CHECK: ${info}`;
+      } else {
+        meta.textContent = `Turn: ${turnOrder[currentTurnIndex]} — Click a piece to move.`;
+      }
+    }
+
+    return kingsInCheck;
+  }
+
+
+
+  // Add check styling
+  const style = document.createElement("style");
+  style.textContent = `
+  .tile.check {
+    outline: 3px solid red;
+    box-shadow: inset 0 0 10px red;
+  }
+  `;
+  document.head.appendChild(style);
+
+  
+  // render function (draw pieces; stacked pieces will both be appended)
+  function render() {
+    const board = document.getElementById('board');
+    const boardWrapper = document.getElementById('board-wrapper'); // <-- new line
+
+    // Clear old tiles and highlights
+    document.querySelectorAll('.tile').forEach(t => {
+      t.innerHTML = '';
+      t.classList.remove('selected', 'valid');
+    });
+
+    // Clear old coordinate labels (so they don’t stack up)
+    document.querySelectorAll('.file-labels, .rank-labels').forEach(el => el.remove());
+
+    // Draw pieces
+    // Draw pieces
+    for (const p of pieces) {
+      const tile = board.querySelector(`[data-coord="${p.coord}"]`);
+      if (!tile) continue;
+
+      const el = document.createElement('div');
+      el.className = 'piece' + (p.frozen ? ' frozen' : '');
+      el.dataset.id = p.id;
+      el.dataset.color = p.color;
+
+      // --- Unicode map for fallback ---
+      const unicodeMap = {
+        BLACK:  { king: '♚', queen: '♛', rook: '♜', bishop: '♝', knight: '♞', pawn: '♟' },
+        YELLOW: { king: '♔', queen: '♕', rook: '♖', bishop: '♗', knight: '♘', pawn: '♙' },
+        BLUE:   { king: '♔', queen: '♕', rook: '♖', bishop: '♗', knight: '♘', pawn: '♙' },
+        RED:    { king: '♔', queen: '♕', rook: '♖', bishop: '♗', knight: '♘', pawn: '♙' },
+      };
+
+      // --- Base type detection (force pawns to be pawns) ---
+      const t = p.type.toLowerCase();
+      const baseType = t.startsWith("pawn")
+        ? "pawn"
+        : Object.keys(unicodeMap.BLACK).find(k => t.includes(k)) || "pawn";
+
+      const fallbackSymbol = unicodeMap[p.color]?.[baseType] || '?';
+
+      // --- Load piece image ---
+      const imgURL = getPieceImageURL(p);
+
+      if (imgURL) {
+        const img = document.createElement('img');
+        img.src = imgURL;
+        img.alt = fallbackSymbol; // ✅ correct symbol if image fails
+        img.style.width = "45px";
+        img.style.height = "45px";
+
+        // If image fails to load, replace with Unicode character
+        img.onerror = () => {
+          img.remove(); // remove broken image
+          el.textContent = fallbackSymbol;
+          el.style.fontSize = '1.8rem';
+          el.style.display = 'flex';
+          el.style.alignItems = 'center';
+          el.style.justifyContent = 'center';
+          el.style.fontWeight = 'bold';
+        };
+
+        el.appendChild(img);
+      } else {
+        // If no image URL at all, show Unicode directly
+        el.textContent = fallbackSymbol;
+        el.style.fontSize = '1.8rem';
+        el.style.display = 'flex';
+        el.style.alignItems = 'center';
+        el.style.justifyContent = 'center';
+        el.style.fontWeight = 'bold';
+      }
+
+      tile.appendChild(el);
+    }
+
+
+
+    // === Add coordinates ===
+    const fileLabels = document.createElement('div');
+    fileLabels.className = 'file-labels';
+    for (let x = 0; x < 8; x++) {
+      const label = document.createElement('div');
+      label.textContent = String.fromCharCode(97 + x); // a–h
+      fileLabels.appendChild(label);
+    }
+
+    const rankLabels = document.createElement('div');
+    rankLabels.className = 'rank-labels';
+    for (let y = 8; y >= 1; y--) {
+      const label = document.createElement('div');
+      label.textContent = y;
+      rankLabels.appendChild(label);
+    }
+
+    // ✅ append to wrapper, not board
+    boardWrapper.appendChild(fileLabels);
+    boardWrapper.appendChild(rankLabels);
+  }
+
+
+
+  // -------------------------
+  // initial load (none until user selects)
+  // -------------------------
+  arrayDropdown.addEventListener("change", () => {
+    turnDisplay.style.display = "none";
+    const key = arrayDropdown.value;
+    if (!key) return;
+    const selectedArray = data.arrays[key];
+    if (!selectedArray) return;
+    selectedPiece = null;
+    clearHighlights();
+    loadArray(selectedArray);
+  });
+
+
+  // -------------------------
+  // click-to-select / movement / captures / throne behavior
+  // -------------------------
+  board.addEventListener('click', e=>{
+    if (window.gameOver) return;
+    const pieceEl = e.target.closest('.piece');
+    const tile = e.target.closest('.tile');
+    if(!tile) return;
+    const coord = tile.dataset.coord;
+
+    if (!boardActive) {
+      console.log("🕓 Board inactive until Begin Play.");
+      return;
+    }
+
+    // --- enforce turn ownership ---
+    // only check this if a piece is selected
+    if (selectedPiece && selectedPiece.color !== currentColor()) {
+      selectedPiece = null;
+      clearHighlights();
+      return;
+    }
+
+
+    // select a piece (if any) and show valid moves
+    if (pieceEl && !selectedPiece) {
+      const id = pieceEl.dataset.id;
+      const chosen = pieces.find(p => p.id === id);
+
+      // step 5: prevent selecting out-of-turn pieces
+      if (chosen.color !== currentColor()) return;
+
+      // find any king currently in check (alive)
+      const kingsInCheck = updateCheckState();
+      const activeCheck = kingsInCheck.length ? kingsInCheck[0] : null;
+
+      // If there’s a king in check belonging to the same team
+      // and the chosen piece is not that king,
+      // we need to see whether the king can move
+      // Only restrict the army whose own king is in check
+      if (activeCheck && chosen.color === activeCheck.color) {
+        const canEscape = kingHasSafeEscape(activeCheck);
+        const kingMoves = getValidMoves(activeCheck); // raw king moves (captures + empty squares)
+        const hasAnyKingMove = kingMoves.length > 0;
+
+        // RULE: if king is in check and the king has any move (safe or only into check),
+        // the player MUST move the king. Block selection of other pieces.
+        if ((canEscape || hasAnyKingMove) && chosen.type !== "king") {
+          if (canEscape) {
+            document.querySelector(".meta").textContent =
+              `${activeCheck.color} king in check — must move the king.`;
+          } else {
+            // no safe squares, but the king *can* still move (into check)
+            document.querySelector(".meta").textContent =
+              `${activeCheck.color} king has no safe squares — must move the king (may move into check).`;
+          }
+          // prevent selecting other pieces
+          return;
+        }
+
+        // If king has no moves at all, selection rules continue as before:
+        if (!hasAnyKingMove && chosen.type === "king") {
+          document.querySelector(".meta").textContent =
+            `${activeCheck.color} king is blocked — no legal moves.`;
+          return;
+        }
+        if (!hasAnyKingMove && chosen.type !== "king") {
+          document.querySelector(".meta").textContent =
+            `${activeCheck.color} king blocked — may move another piece.`;
+          // (do NOT return here; allow selection of other pieces as normal)
+        }
+      }
+
+      // otherwise normal selection logic
+      selectedPiece = chosen;
+      clearHighlights();
+      tile.classList.add('selected');
+      const valid = getValidMoves(selectedPiece);
+      for (const c of valid) {
+        const occ = getPieceAt(c);
+        if (occ.length && occ[0].frozen) continue;
+        const t = board.querySelector(`[data-coord="${c}"]`);
+        if (t) t.classList.add('valid');
+      }
+      return;
+    }
+
+
+    // perform move if selected and target is valid
+    if (selectedPiece && tile.classList.contains('valid')) {
+      const targetPieces = getPieceAt(coord);
+
+      // ---------- capture handling ----------
+      if (targetPieces.length) {
+        const target = targetPieces[0];
+
+        // --- Normal capture logic (skip teammates, frozen, etc.) ---
+        if (target.frozen || isTeammate(selectedPiece.color, target.color)) {
+          selectedPiece = null;
+          clearHighlights();
+          render();
+          return;
+        }
+
+        // --- Throne or normal capture behavior ---
+        const throneOwner = Object.keys(throneSquares).find(c => throneSquares[c] === coord);
+        if (throneOwner && !throneBroken[throneOwner]) {
+          const removed = pieces.filter(p => p.color === throneOwner && p.coord === coord);
+          const removedIncludedKing = removed.some(r => r.type === 'king');
+          if (removed.length > 0) {
+            pieces = pieces.filter(p => !(p.color === throneOwner && p.coord === coord));
+            if (removedIncludedKing) freezeArmy(throneOwner);
+            throneBroken[throneOwner] = true;
+          } else {
+            if (target.type === "king") freezeArmy(target.color);
+            pieces = pieces.filter(p => p.id !== target.id);
+          }
+        } else {
+          if (target.type === "king") {
+            pieces = pieces.filter(p => p.id !== target.id);
+            freezeArmy(target.color);
+            throneBroken[target.color] = true;
+          } else {
+            pieces = pieces.filter(p => p.id !== target.id);
+          }
+        }
+
+        checkDelayedPromotions();
+      }
+
+
+      // ---------- mark throne broken if moving off your own throne ----------
+      const originCoord = selectedPiece.coord;
+      const myThrone = throneSquares[selectedPiece.color];
+      if (!throneBroken[selectedPiece.color] && originCoord === myThrone) {
+        throneBroken[selectedPiece.color] = true;
+      }
+
+      // Before applying the move
+      lastMovedId = selectedPiece.id;
+      selectedPiece.coord = coord;
+
+
+      // ---------- perform the move ----------
+      selectedPiece.coord = coord;
+
+      // ---------- if a king moved onto an ally's empty throne -> seize/unfreeze ----------
+      if (selectedPiece.type === "king") {
+        for (const [thColor, thCoord] of Object.entries(throneSquares)) {
+          if (coord === thCoord && isTeammate(selectedPiece.color, thColor)) {
+            // only seize if throne is empty (per Zalewski) — move generation prevented moves onto occupied intact throne
+            const occ = getPieceAt(coord);
+            if (occ.length === 1 && occ[0].id === selectedPiece.id) {
+              // empty before move (or piece moved onto empty and it's the same piece); call seize
+              seizeThrone(thColor, selectedPiece.color);
+            } else {
+              // if there are other pieces there, seize is disallowed — nothing to do
+            }
+          }
+        }
+      }
+
+      if (selectedPiece && selectedPiece.type.startsWith('pawn_')) {
+        if (canPromote(selectedPiece)) {
+          handlePromotion(selectedPiece);
+        }
+      }
+
+      // Check if any delayed promotions should trigger
+      checkDelayedPromotions();
+
+      // 🔹 NEW: Check for bishop/queen concourse completions
+      const concourseTriggered = checkConcourse(selectedPiece.id);
+      if (concourseTriggered) {
+        const piece = selectedPiece;
+        const from = originCoord;
+        const to = coord;
+
+        // collect captured and recruited pieces from last concourse
+        const captured = lastConcourse?.captured || [];
+        const recruited = lastConcourse?.recruited || [];
+
+        render();
+        updateCheckState();
+        checkGameState();
+
+        recordMove({
+          color: piece.color,
+          piece,
+          from,
+          to,
+          concourse: true,
+          captures: captured,
+          recruited: recruited
+        });
+
+        setTimeout(() => nextTurn(), 500);
+        return;
+      }
+
+
+
+
+      // 📝 Record move for notation
+      const piece = selectedPiece;
+      const from = originCoord;
+      const to = coord;
+      const captured = targetPieces.filter(t => !isTeammate(piece.color, t.color) && !t.frozen);
+      const capturedKing = captured.some(c => c.type === "king");
+
+      // detect if move resulted in check
+      const gaveCheck = pieces.some(
+        p => p.type === "king" && p.inCheck && p.threats?.some(t => t.id === piece.id)
+      );
+
+      // detect throne or concourse events
+      const wasConcourse = concourseTriggered;
+
+      // detect if this move actually unfroze an allied army
+      const wasThrone = piece.type === "king" && lastUnfrozen;
+      lastUnfrozen = false; // reset for next move
+
+      // 🩺 detect if the move placed any enemy king in check
+      const afterChecks = updateCheckState();
+      let gaveCheckFlag = afterChecks.some(k => k.threats.some(t => t.id === piece.id));
+
+
+
+      recordMove({
+        color: piece.color,
+        piece,
+        from,
+        to,
+        captures: captured,
+        concourse: wasConcourse,
+        throneSeizure: wasThrone,
+        promotion: piece.promotedTo || null,
+        check: gaveCheckFlag,
+        kingCaptured: capturedKing
+      });
+
+      // Clean up and continue normal turn rotation
+      selectedPiece = null;
+      clearHighlights();
+
+      render();
+      nextTurn();
+      checkGameState();
+      return;
+
+    }
+    
+
+    // Deselect logic
+    if (selectedPiece) {
+      selectedPiece = null;
+      clearHighlights();
+    }
+  });
+
+  // ============================
+  // 🧪 TEST HARNESS (for edge-case scenarios)
+  // ============================
+
+  const dynamicTests = [
+    {
+      name: "D1. Simple Check (red to move)",
+      turn: "RED",
+      setup: [
+        { color: "RED", type: "king", coord: "e1" },
+        { color: "BLUE", type: "rook", coord: "e8" }
+      ],
+      sequence: []
+    },
+    {
+      name: "D2. Double Check by Knights (yellow to move)",
+      turn: "YELLOW",
+      setup: [
+        { color: "YELLOW", type: "king", coord: "d4" },
+        { color: "BLUE", type: "knight", coord: "b5" },
+        { color: "BLACK", type: "knight", coord: "f5" }
+      ],
+      sequence: []
+    },
+
+    {
+      name: "Pawn Promotion — YELLOW",
+      setup: [
+        { color: "YELLOW", type: "pawn_queen", coord: "a2" },
+        { color: "BLUE", type: "king", coord: "e4" }
+      ],
+      turn: "YELLOW"
+    },
+    {
+      name: "Privileged Pawn Promotion (red to move)",
+      setup: [
+        { color: "RED", type: "king", coord: "d4" },
+        { color: "RED", type: "pawn_rook", coord: "h7" }
+      ],
+      turn: "RED"
+    },
+    {
+      name: "Concourse — Bishops (Yellow completes)",
+      turn: "YELLOW",
+      setup: [
+        { color: "YELLOW", type: "bishop", coord: "c2" },
+        { color: "BLUE", type: "bishop", coord: "d5" },
+        { color: "RED", type: "bishop", coord: "d4" },
+        { color: "BLACK", type: "bishop", coord: "e5" }
+      ],
+      sequence: [
+        
+      ]
+    },
+    {
+      name: "Concourse — Queens (Blue completes)",
+      turn: "BLUE",
+      setup: [
+        { color: "BLUE", type: "queen", coord: "f4" },
+        { color: "BLACK", type: "queen", coord: "f7" },
+        { color: "RED", type: "queen", coord: "g6" },
+        { color: "YELLOW", type: "queen", coord: "g7" }
+      ],
+      sequence: [
+        
+      ]
+    }
+
+  ];
+
+  // ============================================================
+  // DYNAMIC TEST DROPDOWN (hidden by default, shown when needed)
+  // ============================================================
+
+  // Create container (centered under the board)
+  const dynamicTestsContainer = document.createElement("div");
+  dynamicTestsContainer.id = "dynamicTestsContainer";
+  dynamicTestsContainer.style.display = "none"; // hidden by default // change to "block" for visibility
+  dynamicTestsContainer.style.textAlign = "center";
+  dynamicTestsContainer.style.marginTop = "12px";
+
+  // Create the dropdown
+  const dynamicDropdown = document.createElement("select");
+  dynamicDropdown.id = "dynamicSelect";
+  dynamicDropdown.innerHTML = `<option value="">-- Dynamic Tests --</option>`;
+  dynamicTests.forEach(t => {
+    const opt = document.createElement("option");
+    opt.value = t.name;
+    opt.textContent = t.name;
+    dynamicDropdown.appendChild(opt);
+  });
+  dynamicTestsContainer.appendChild(dynamicDropdown);
+
+  // Insert container right after the board so it’s visually beneath it
+  board.insertAdjacentElement("afterend", dynamicTestsContainer);
+
+
+  dynamicDropdown.addEventListener("change", () => {
+    const chosen = dynamicTests.find(t => t.name === dynamicDropdown.value);
+    if (!chosen) return;
+
+    console.log("🧩 Running dynamic test:", chosen.name);
+
+    // Deep clone and normalize pieces
+    pieces = chosen.setup.map(p => {
+      const id = `${p.color}_${p.type}_${p.coord}`;
+      return { id, ...p };
+    });
+
+    // Force starting turn if defined
+    if (chosen.turn) {
+      const idx = turnOrder.indexOf(chosen.turn);
+      if (idx !== -1) {
+        currentTurnIndex = idx;
+        console.log(`🎯 Starting turn set to ${chosen.turn}`);
+      }
+    }
+
+
+    // Refresh visuals & state
+    selectedPiece = null;
+    clearHighlights();
+    render();
+    updateCheckState();
+    checkGameState();
+
+    // Show sequence if available
+    if (chosen.sequence && chosen.sequence.length) {
+      console.group(`🧭 Planned sequence for ${chosen.name}`);
+      for (const step of chosen.sequence) {
+        console.log("→ Move", step.move, "| Expected:", step.expected);
+      }
+      console.groupEnd();
+    }
+
+    console.log("✅ Dynamic test loaded:", pieces);
+  });
+
+  // Eat clicks only on the board area once game is over
+  ["click","mousedown","touchstart","contextmenu"].forEach(evName => {
+    board.addEventListener(
+      evName,
+      function (ev) {
+        if (window.gameOver) {
+          ev.stopImmediatePropagation();
+          ev.preventDefault();
+        }
+      },
+      { capture: true, passive: false }
+    );
+  });
+
+
+  // ============================
+  // 🧪 END TEST HARNESS (for edge-case scenarios)
+  // ============================
+
+  // ============================================================
+  // IMPROVED SHARED THRONE MENU HANDLER
+  // ============================================================
+
+  // helper to remove existing menus
+  function removeThroneMenus() {
+    document.querySelectorAll('.throne-menu').forEach(m => m.remove());
+  }
+
+  // builds and shows menu on a clicked shared throne
+  function showThroneMenu(coord, piecesOnTile) {
+    removeThroneMenus();
+
+    const current = currentColor();
+    const isOwnThrone = throneSquares[current] === coord;
+    if (!isOwnThrone) return;
+
+    const boardRect = board.getBoundingClientRect();
+    const tile = board.querySelector(`[data-coord="${coord}"]`);
+    if (!tile) return;
+    const rect = tile.getBoundingClientRect();
+
+    const menu = document.createElement("div");
+    menu.className = "throne-menu";
+
+    piecesOnTile.forEach(p => {
+      const btn = document.createElement("button");
+      btn.textContent = `Select ${p.type[0].toUpperCase() + p.type.slice(1)}`;
+      btn.addEventListener("click", ev => {
+        ev.stopPropagation();
+        selectedPiece = p;
+
+        // --- bring this piece visually to top ---
+        const tilePieces = tile.querySelectorAll(".piece");
+        tilePieces.forEach(el => {
+          el.style.zIndex = "1";
+          el.classList.remove("top-piece");
+        });
+        const el = [...tilePieces].find(e => e.dataset.id == p.id);
+        if (el) {
+          el.style.zIndex = "10";
+          el.classList.add("top-piece");
+        }
+
+        // --- update highlights for the selected piece ---
+        clearHighlights();
+        const moves = getValidMoves(p);
+        moves.forEach(m => {
+          const t = board.querySelector(`[data-coord='${m}']`);
+          if (t) t.classList.add("valid");
+        });
+        const currentTile = board.querySelector(`[data-coord='${p.coord}']`);
+        if (currentTile) currentTile.classList.add("selected");
+        removeThroneMenus();
+      });
+      menu.appendChild(btn);
+    });
+
+    document.body.appendChild(menu);
+
+    const menuRect = menu.getBoundingClientRect();
+    let left = rect.left + rect.width + 4;
+    let top = rect.top + (rect.height - menuRect.height) / 2;
+
+    if (left + menuRect.width > boardRect.right)
+      left = rect.left - menuRect.width - 4;
+    if (top + menuRect.height > boardRect.bottom)
+      top = boardRect.bottom - menuRect.height - 4;
+    if (top < boardRect.top) top = boardRect.top + 4;
+
+    menu.style.position = "fixed";
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  // Hook into board click event (after your main click handler)
+  board.addEventListener('click', e => {
+    const tile = e.target.closest('.tile');
+    if (!tile) return;
+    const coord = tile.dataset.coord;
+
+    // remove any open menus on generic click
+    removeThroneMenus();
+
+    // If this is a shared throne, open menu instead of selecting
+    const onTile = getPieceAt(coord);
+    if (
+      onTile.length === 2 &&
+      onTile.some(p => p.type === 'king') &&
+      throneSquares[onTile[0].color] === coord
+    ) {
+      showThroneMenu(coord, onTile);
+      e.stopPropagation();
+      return;
+    }
+  });
+
+
+
+})(); // <--- END main IIFE
+
+// ensure notationArea is bound after DOM fully loads
+window.addEventListener("DOMContentLoaded", () => {
+  window.notationArea = document.getElementById("notationArea");
+});
+
+</script>
+
+</body>
+</html>
